@@ -1,0 +1,18 @@
+{
+    "name": "json-thresher",
+    "version": "1.0.0",
+    "description": "c++ io binder for json",
+    "main": "index.js",
+    "devDependencies": {
+        "doctest": "onqtam/doctest",
+        "json-graph-specification": "jsongraph/json-graph-specification"
+    },
+    "scripts": {
+        "clean": "make clean",
+        "build": "cd test && pwd && make -j 3 -f Makefile all",
+        "test": "cnpm build && cd test && pwd && test.exe --test-case=\"test create json\" ",
+        "lib": "mingw32-make.exe -j 3 -f Makefile all"
+    },
+    "author": "rimmartin",
+    "license": "MIT"
+}

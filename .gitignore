@@ -30,3 +30,7 @@
 *.exe
 *.out
 *.app
+/nbproject/
+build
+cpp_modules/
+test/examples/
