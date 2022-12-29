@@ -11,6 +11,11 @@ namespace sylvanmats::io::json{
         bind(0);
     }
     
+    void Binder::operator ()(std::string& jsonContent){
+        this->jsonContent=jsonContent;
+        bind(0);
+    }
+        
     //add
     bool Binder::operator ()(Path& jp, std::string_view key, std::any value){
         if(jsonContent.empty()){
@@ -96,6 +101,19 @@ namespace sylvanmats::io::json{
         return ret;
     }
         
+    //get
+    void Binder::operator ()(Path& p, std::function<void(std::any& v)> apply){
+        stroll(p, [&apply](size_t objIndex, std::string_view& key, std::any& v){apply(v);}, 0, 1);
+    }
+        
+    //traverse
+    void Binder::operator ()(Path& p, std::function<void(std::string_view& key, std::any& v)> apply){
+        stroll(p, [&](size_t objIndex, std::string_view& key, std::any& v){
+            for(size_t  vi: objects[objIndex].children)
+                apply(objects[vi].key, objects[vi].value_index);
+        }, 0, 0);
+    }
+        
     void Binder::display(){
         for(auto s : objects){
             for(size_t ti=0;ti<s.parent_index;ti++)std::cout<<"\t";
@@ -154,7 +172,7 @@ namespace sylvanmats::io::json{
             switch(*it){
                 case '{':
                     if(!key.empty()){
-                        objects.push_back(jobject{.obj_type=START_OBJ, .obj_size=objects.size(), .parent_index=(arrayObjects.size()>0) ? arrayObjects.back() : 0ull, .key=key, .key_index=std::distance(s.begin(), it), .value_index=object(), .key_start=key_start, .key_end=key_end, .value_start=value_start, .value_end=value_end});
+                        objects.emplace_back(jobject{.obj_type=START_OBJ, .obj_size=objects.size(), .parent_index=(arrayObjects.size()>0) ? arrayObjects.back() : 0ull, .key=key, .key_index=std::distance(s.begin(), it), .value_index=object(), .key_start=key_start, .key_end=key_end, .value_start=value_start, .value_end=value_end});
                         if(arrayObjects.size()>0)objects[arrayObjects.back()].children.push_back(objects.size()-1);
                     }
                     else{
@@ -190,9 +208,9 @@ namespace sylvanmats::io::json{
                         value_start=std::distance(s.begin(), itStart);
                         value_end=std::distance(s.begin(), it-2);
                         value=std::string_view(itStart, it);
-//                        if(key.compare("symbol")==0 && std::any_cast<std::string_view>(value).compare("C")==0)
+//                        if(key.compare("name")==0)// && std::any_cast<std::string_view>(value).compare("C")==0)
 //                            std::cout<<arrayObjects.size()<<" hitColon "<<key<<" "<<std::any_cast<std::string_view>(value)<<" "<<objects.size()<<" "<<arrayObjects.back()<<std::endl;
-                        objects.push_back(jobject{.obj_type=VALUE_PAIR, .obj_size=objects.size(), .parent_index=(arrayObjects.size()>0) ? arrayObjects.back() : 0ull, .key=key, .value_index=value, .key_start=key_start, .key_end=key_end, .value_start=value_start, .value_end=value_end});
+                        objects.emplace_back(jobject{.obj_type=VALUE_PAIR, .obj_size=objects.size(), .parent_index=(arrayObjects.size()>0) ? arrayObjects.back() : 0ull, .key=key, .value_index=value, .key_start=key_start, .key_end=key_end, .value_start=value_start, .value_end=value_end});
                         objects[arrayObjects.back()].children.push_back(objects.size()-1);
                         hitColon=false;
                         key="";
@@ -233,7 +251,7 @@ namespace sylvanmats::io::json{
                         else
                             value=std::strtol(v.c_str(), nullptr, 10);
                         //std::cout<<objects.size()<<" #num "<<key<<" "<<v<<" "<<objects.size()<<std::endl;
-                        objects.push_back(jobject{.obj_type=VALUE_PAIR, .obj_size=objects.size(), .parent_index=(arrayObjects.size()>0) ? arrayObjects.back() : 0ull, .key=key, .value_index=value, .key_start=key_start, .key_end=key_end, .value_start=value_start, .value_end=value_end});
+                        objects.emplace_back(jobject{.obj_type=VALUE_PAIR, .obj_size=objects.size(), .parent_index=(arrayObjects.size()>0) ? arrayObjects.back() : 0ull, .key=key, .value_index=value, .key_start=key_start, .key_end=key_end, .value_start=value_start, .value_end=value_end});
                         objects[arrayObjects.back()].children.push_back(objects.size()-1);
                         hitColon=false;
                         hitPeriod=false;
@@ -256,7 +274,7 @@ namespace sylvanmats::io::json{
                     if(arrayObjects.size()>0)objects[arrayObjects.back()].children.push_back(objects.size()-1ull);
                     arrayObjects.push_back(objects.size()-1);
                     if(!key.empty()){
-                        objects.push_back(jobject{.obj_type=VALUE_PAIR, .obj_size=objects.size(), .parent_index=(arrayObjects.size()>0) ? arrayObjects.back() : 0ull, .key=key, .value_index=array(), .key_start=key_start, .key_end=key_end, .value_start=value_start, .value_end=value_end});
+                        objects.emplace_back(jobject{.obj_type=VALUE_PAIR, .obj_size=objects.size(), .parent_index=(arrayObjects.size()>0) ? arrayObjects.back() : 0ull, .key=key, .value_index=array(), .key_start=key_start, .key_end=key_end, .value_start=value_start, .value_end=value_end});
                         objects[objects.size()-1].children.push_back(objects.size()-1);
                     }
                     hitColon=false;
@@ -296,17 +314,17 @@ namespace sylvanmats::io::json{
         if(i<jp.p.size()){
             element d=jp.p[i];
             size_t objSize=objects.size();
-            //if(objParent+1<objects.size())std::cout<<i<<" d.label "<<d.label<<" "<<i<<" "<<objParent<<" "<<objects[objParent].children.size()<<" "<<objects[objParent].obj_type<<std::endl;
+//            if(objParent<objects.size() && d.label.compare("name")==0)std::cout<<i<<" d.label "<<d.label<<" "<<i<<" "<<objParent<<" "<<objects[objParent].children.size()<<" "<<objects[objParent].obj_type<<std::endl;
             if(objParent<objects.size() && objects[objParent].children.size()>0 && objects[objParent].obj_type==START_ARRAY){
                 jobject p=objects[objParent];
                 //if(objParent==0 && objects[objParent].key.empty() && objects[objParent].obj_type==START_OBJ)std::cout<<"array "<<(objParent)<<" "<<d.label<<std::endl;
                 for(std::vector<size_t>::iterator itArray=p.children.begin();itArray!=p.children.end();itArray++){
-                    //std::cout<<"child "<<(objParent)<<" "<<(*itArray)<<std::endl;
+//                    std::cout<<"child "<<(objParent)<<" "<<(*itArray)<<std::endl;
                     stroll(jp, apply, i, (*itArray));
                     //if((*itArray).key.compare(d.label)==0)apply(p.parent_index, p.key, p.value_index);
                 }
             }
-            for(auto s : objects | std::views::filter([&](jobject& s){return (s.parent_index==objParent) && (s.key.compare(d.label)==0 || (s.key.empty() && s.obj_type==START_OBJ));})){
+            for(auto s : objects | std::views::filter([&](jobject& s){return (s.parent_index==objParent || (s.obj_size==objParent && objects[objParent].obj_type==VALUE_PAIR)) && (s.key.compare(d.label)==0 || (s.key.empty() && s.obj_type==START_OBJ));})){
                     if(i==jp.p.size()-1 && jp.p.back().action==TEST){
                         //size_t vpsSize=objects.size();
                         //std::cout<<"test end of jp "<<jp.p.back().label<<" "<<jp.p.back().value<<" "<<objects.size()<<std::endl;
@@ -317,7 +335,7 @@ namespace sylvanmats::io::json{
 
                     }
                     else if(i==jp.p.size()-1){
-                        //std::cout<<"end of jp "<<objects.size()<<std::endl;
+//                        std::cout<<"end of jp "<<objects.size()<<std::endl;
                         size_t vpsSize=objects.size();
                         for(auto p : objects | std::views::filter([&](jobject& p){return p.parent_index==s.parent_index && p.key.compare(jp.p.back().label)==0;})){
                             //for(size_t ti=0;ti<s.obj_size+1;ti++)std::cout<<"\t";

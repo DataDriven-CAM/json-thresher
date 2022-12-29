@@ -40,24 +40,6 @@ namespace sylvanmats::io::json{
         std::vector<size_t> children;
     };
 
-    enum{
-        OBJ_INDEX,
-        PAIR_DEPTH,
-        PAIR_KEY,
-        PAIR_INDEX
-    };
-
-    struct key_value{
-        unsigned int obj_index;
-        unsigned int pair_depth;
-        std::string_view pair_key;
-        std::any pair_index;
-        size_t key_start;
-        size_t key_end;
-        size_t value_start;
-        size_t value_end;
-    };
-    
     struct object{};
     struct array{};
     
@@ -80,10 +62,7 @@ namespace sylvanmats::io::json{
         //Populate 
         void operator ()(std::istream& is);
         
-        void operator ()(std::string& jsonContent){
-            this->jsonContent=jsonContent;
-            bind(0);
-        }
+        void operator ()(std::string& jsonContent);
         
         //add
         bool operator ()(Path& p, std::string_view key, std::any value);
@@ -92,17 +71,10 @@ namespace sylvanmats::io::json{
         bool operator ()(Path& jp, std::string key);
         
         //get
-        void operator ()(Path& p, std::function<void(std::any& v)> apply){
-            stroll(p, [&apply](size_t objIndex, std::string_view& key, std::any& v){apply(v);}, 0, 1);
-        }
+        void operator ()(Path& p, std::function<void(std::any& v)> apply);
         
         //traverse
-        void operator ()(Path& p, std::function<void(std::string_view& key, std::any& v)> apply){
-            stroll(p, [&](size_t objIndex, std::string_view& key, std::any& v){
-                for(size_t  vi: objects[objIndex].children)
-                    apply(objects[vi].key, objects[vi].value_index);
-            }, 0, 1);
-        }
+        void operator ()(Path& p, std::function<void(std::string_view& key, std::any& v)> apply);
         
         //traverse sibling
         void operator ()(Path& p, std::string_view sibling, std::function<void(std::string_view& key, std::any& v)> apply){
