@@ -1,15 +1,16 @@
-LD=ld.exe
+#LD=ld.exe
 
-all: LDFLAGS= -L../ -ljsonthresher -pthread -Wl,--allow-multiple-definition
-all: test
-	@mkdir -p $(@D)
-	$(CXX) $(LDFLAGS) -o test $(wildcard build/src/*.o) C:/sylvanmats/jsonthresher/jsonthresher.dll  
+all: LDFLAGS= -fuse-ld=gold -L../ -ljsonthresher -pthread -Wl,--allow-multiple-definition
+all: build/src/test.o test
 
-test: CXXFLAGS= -DNDEBUG -O3 -pthread -std=c++23 -I../include -I../cpp_modules/doctest -MMD -Wl,--allow-multiple-definition
-test: LDFLAGS= 
-
-test: src/test.cpp
+build/src/test.o: CXXFLAGS= -Wl,--allow-multiple-definition -DNDEBUG -O3 -pthread -std=c++23 -I../include -I../cpp_modules/doctest -I../cpp_modules/fmt/dist/include -MMD
+build/src/test.o: src/test.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/test.o src/test.cpp 
+
+test: LDFLAGS= -fuse-ld=gold -L../ -ljsonthresher -pthread -Wl,--allow-multiple-definition
+test: src/test.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) $(wildcard build/src/*.o) -o test  
 
 

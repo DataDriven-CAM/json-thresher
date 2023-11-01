@@ -3,15 +3,20 @@
     "version": "1.0.0",
     "description": "c++ io binder for json",
     "main": "index.js",
+    "private": null,
+    "dependencies": {
+      "fmt": "fmtlib/fmt"
+    },
     "devDependencies": {
         "doctest": "onqtam/doctest",
         "json-graph-specification": "jsongraph/json-graph-specification"
     },
     "scripts": {
         "clean": "make clean",
-        "build": "cd test && pwd && make -j 3 -f Makefile all",
-        "test": "cnpm build && cd test && pwd && test.exe --test-case=\"test create json\" ",
-        "lib": "mingw32-make.exe -j 3 -f Makefile all"
+        "lib": "which make && make -j 3 -f Makefile all",
+        "fmt": "cd cpp_modules/fmt && mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../dist .. && make install",
+        "build": "cd test && pwd && mkdir -p build/src && make -j 3 -f Makefile all",
+        "test": "cnpm build && cd test && pwd && ./test --test-case='test create json' "
     },
     "author": "rimmartin",
     "license": "MIT"

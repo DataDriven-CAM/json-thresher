@@ -16,6 +16,10 @@
 
 #include "io/json/Path.h"
 
+#define FMT_HEADER_ONLY
+#include "fmt/format.h"
+#include "fmt/ranges.h"
+
 namespace sylvanmats::io::json{
 
     enum OBECT_TYPE{
@@ -23,21 +27,22 @@ namespace sylvanmats::io::json{
         START_OBJ,
         END_ARRAY,
         START_ARRAY,
-        VALUE_PAIR
+        VALUE_PAIR,
+        PAIR_KEY,
+        PAIR_VALUE,
+        VALUE_NULL
     };
     
     struct jobject{
         OBECT_TYPE obj_type;
         size_t obj_size;
-        size_t parent_index;
         std::string_view key;
         size_t key_index=0;
         std::any value_index;
-        size_t key_start;
-        size_t key_end;
-        size_t value_start;
-        size_t value_end;
-        std::vector<size_t> children;
+        size_t key_start=0;
+        size_t key_end=0;
+        size_t value_start=0;
+        size_t value_end=0;
     };
 
     struct object{};
@@ -52,7 +57,9 @@ namespace sylvanmats::io::json{
                                                                     {std::type_index(typeid(double)), "double"},
                                                                     {std::type_index(typeid(object)), "object"}};
         std::string jsonContent="";
-        std::vector<jobject> objects;
+//        std::vector<jobject> objects;
+        std::vector<std::pair<jobject, std::vector<jobject>>> dag;
+        std::vector<int> depthList;
         
     public:
         Binder()=default;
@@ -79,17 +86,17 @@ namespace sylvanmats::io::json{
         //traverse sibling
         void operator ()(Path& p, std::string_view sibling, std::function<void(std::string_view& key, std::any& v)> apply){
 //            for(auto d : p.p){
-                for(auto s : objects | std::views::filter([&sibling](jobject& s){return s.key.compare(sibling)==0;})){
-//                    std::cout<<std::get<OBJ_SIZE>(s)<<" here "<<s.obj_size<<" "<<s.key<<std::endl;
-                    for(auto p : objects | std::views::filter([&s](jobject& p){return p.parent_index==s.obj_size;})){
-                        //std::cout<<"\t"<<std::get<PAIR_DEPTH>(p)<<" "<<std::get<PAIR_KEY>(p)<<std::endl;
-                        apply(p.key, p.value_index);
-                    }
-                }
+//                for(auto s : objects | std::views::filter([&sibling](jobject& s){return s.key.compare(sibling)==0;})){
+////                    std::cout<<std::get<OBJ_SIZE>(s)<<" here "<<s.obj_size<<" "<<s.key<<std::endl;
+//                    for(auto p : objects | std::views::filter([&s](jobject& p){return p.parent_index==s.obj_size;})){
+//                        //std::cout<<"\t"<<std::get<PAIR_DEPTH>(p)<<" "<<std::get<PAIR_KEY>(p)<<std::endl;
+//                        apply(p.key, p.value_index);
+//                    }
+//                }
 //            }
         }
         
-        size_t countObjects(){return objects.size();}
+        size_t countObjects(){return dag.size();}
         
         void display();
         
@@ -98,12 +105,14 @@ namespace sylvanmats::io::json{
         
         bool isNull(std::span<char>& s, std::span<char>::iterator& it);
         
-        void stroll(Path& jp, std::function<void(size_t objIndex, std::string_view& key, std::any& v)> apply, size_t i=0, unsigned int objParent=0);
+        bool match(Path& jp, std::function<void(size_t obj_size, std::string_view& key, std::any& v)> apply);
+        
+//        void stroll(Path& jp, std::function<void(size_t objIndex, std::string_view& key, std::any& v)> apply, size_t i=0, unsigned int objParent=0);
         
         inline std::string typeset(bool comma, size_t indention, std::string_view& key, std::any& value){
             std::string kv{};
             if(comma)kv.append(",\n");
-            for(size_t ti=0;ti<indention;ti++)kv.append("\t");
+            for(size_t ti=0;ti<indention;ti++)kv.append("    ");
             kv.append("\"");
             kv.append(key);
             kv.append("\": ");
@@ -125,6 +134,7 @@ namespace sylvanmats::io::json{
         
         inline size_t findInsertionOffset(size_t index){
             size_t offset=index;
+            if(offset<jsonContent.size() && jsonContent.at(offset)=='\n' ||  jsonContent.at(offset)=='0')return offset;
             while(++offset<jsonContent.size() && jsonContent.at(offset)!='\n' &&  jsonContent.at(offset)<'0'){
                 
             }
@@ -134,7 +144,8 @@ namespace sylvanmats::io::json{
         
         inline size_t findIndention(size_t index){
             size_t offset=index;
-            while(--offset>0 && jsonContent.at(offset)!='\n' && jsonContent.at(offset)!=',' && jsonContent.at(offset)!='}' && jsonContent.at(offset)!=']'){
+//            std::cout<<"findIndention "<<index<<" "<<jsonContent.length()<<std::endl;
+            while((--offset)>0 && jsonContent.at(offset)!='\n' && jsonContent.at(offset)!=',' && jsonContent.at(offset)!='}' && jsonContent.at(offset)!=']'){
                 
             }
 //            if(offset<jsonContent.size()-1)++offset;

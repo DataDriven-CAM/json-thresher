@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <memory>
 
 namespace sylvanmats::io::json{
 
@@ -24,6 +25,7 @@ namespace sylvanmats::io::json{
     protected:
         std::vector<element> p;
         std::vector<std::string> s;
+        std::allocator<std::string> allocations;
     public:
         Path() = default;
         Path(const char* c){
