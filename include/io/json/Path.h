@@ -6,6 +6,12 @@
 #include <memory>
 
 namespace sylvanmats::io::json{
+    template <typename T>
+    struct iterator_traits {
+        using __secret_am_i_the_primary_alias = iterator_traits;
+    };
+
+    template <typename T>concept is_iterator_primary = std::same_as<typename iterator_traits<T>::__secret_am_i_the_primary_alias, iterator_traits<T>>;
 
     enum ACTION{
         NOP,
@@ -13,6 +19,7 @@ namespace sylvanmats::io::json{
     };
     
     struct element{
+        using size_type =  std::size_t;
         std::string_view label;
         ACTION action = NOP;
         std::string_view value;
@@ -25,32 +32,92 @@ namespace sylvanmats::io::json{
     protected:
         std::vector<element> p;
         std::vector<std::string> s;
-        std::allocator<std::string> allocations;
+        std::allocator<element> allocations;
+        std::string::size_type n=0;
+        std::string::size_type reserveSize=0;
+        element* buffer=nullptr;
+        template<typename I> requires std::same_as<I, element>// && std::input_or_output_iterator<I>
+        struct iterator {
+            template<typename D>
+            using iter_difference_t = typename std::conditional_t<is_iterator_primary<D>, std::incrementable_traits<D>, iterator_traits<D>>::difference_type;
+            I* buffer=nullptr;
+            iterator() = default;
+            iterator(I* buffer){this->buffer=buffer;};
+            iterator(const iterator<I>& orig) = default;
+            iterator(iterator<I>&& other) = default;
+            virtual ~iterator() = default;
+            iterator& operator=(const iterator& other) noexcept = default;
+            iterator& operator=(iterator&& other) noexcept = default;
+            
+            bool operator==(const iterator<I>& other){ return this->buffer==other.buffer;};
+            bool operator!=(const iterator<I>& other){ return this->buffer!=other.buffer;};
+            iterator<I>& operator++(){buffer++; return *this;};
+            iterator<I>& operator++(int){iterator<I>& old=*this;operator++(); return old;};
+            iterator<I>& operator--(){buffer--; return *this;};
+            iterator<I>& operator--(int){iterator<I>& old=*this;operator--(); return old;};
+            I& operator*() {return (I&)(*buffer);};
+            I* operator->() { return buffer; };
+            
+        };
+        friend bool operator==(const iterator<element>& orig, const iterator<element>& other){ return orig.buffer==other.buffer;};
+        friend bool operator!=(const iterator<element>& orig, const iterator<element>& other){ return orig.buffer!=other.buffer;};
     public:
         Path() = default;
-        Path(const char* c){
-            s.push_back(std::string(c));
-            this->p.push_back({.label=std::string_view(s.back()), .action=NOP});
-        };
+        Path(const char* c);
         
-        Path(std::vector<element>& p){
-            this->p.insert(this->p.end(), p.begin(), p.end());
-        };
+//        Path(std::vector<element>& p){
+//            this->p.insert(this->p.end(), p.begin(), p.end());
+//        };
         
         Path(struct Root&) {} // converting constructor
         
         Path(const Path& orig) = default;
         Path(Path&& orig) = default;
-        virtual ~Path() = default;
+        virtual ~Path(){
+            if(n>0){
+            std::destroy_n(buffer, n);
+            allocations.deallocate(buffer, n);
+            }
+        };
+        Path& operator=(const Path& other) noexcept = default;
+        Path& operator=(Path&& other) noexcept = default;
         
-        Path& operator=(const Path& p){
-            return *this = Path(p);
-        }
+        void reserve(std::string::size_type reserveSize){
+            buffer=allocations.allocate(reserveSize);
+            this->reserveSize=reserveSize;
+        };
         
-        Path& operator=(Path&& p) noexcept{
-            std::swap(this->p, p.p);
-            return *this;
-        }
+        void push_back(const element& value){
+            if(n>=reserveSize){
+                
+            }
+            std::construct_at(buffer+n, value);
+            n++;
+            
+        };
+        
+        iterator<element> begin(){ return iterator<element>(buffer);};
+
+        iterator<element> end(){ return iterator<element>(buffer+n);};
+        
+        const iterator<element> cbegin() const { return iterator<element>(buffer);};
+
+        const iterator<element> cend() const { return iterator<element>(buffer+n);};
+        
+        element::size_type size(){return n;};
+        
+        element::size_type max_size(){return std::numeric_limits<element::size_type>::max() / sizeof(element);};//std::allocator_traits<std::allocator<element>>::max_size;};
+        
+        bool empty(){return n==0;};
+        
+//        Path& operator=(const Path& p){
+//            return *this = Path(p);
+//        }
+        
+//        Path& operator=(Path&& p) noexcept{
+//            std::swap(this->p, p.p);
+//            return *this;
+//        }
         
         Path& operator=(const char* c){
             //if(!this->p.empty())this->p.clear();
@@ -121,9 +188,11 @@ namespace sylvanmats::io::json{
             return (Path&)p;
         }
 
-        friend Path& operator/(const Path& p, const char* s){
-            ((std::vector<element>)p.p).push_back({.label=std::string_view(s), .action=NOP});
-            return (Path&)p;
+        friend Path& operator/(Path& p, const char* c){
+            p.s.push_back(std::string(c));
+//            std::cout<<"in this divide / "<<p.p.size()<<" "<<p.s.back()<<std::endl;
+            p.p.push_back({.label=std::string_view(p.s.back()), .action=NOP});
+            return p;
         }
 
         friend Path& operator/(const Path& p, const std::string_view& sv){
@@ -155,7 +224,5 @@ namespace sylvanmats::io::json{
         operator sylvanmats::io::json::Path(){return sylvanmats::io::json::Path("/");} // conversion function
     };
     
-    sylvanmats::io::json::Path operator"" _jp(const char* c, size_t s){
-        return sylvanmats::io::json::Path(c);
-    }
+    sylvanmats::io::json::Path operator"" _jp(const char* c, size_t s);
     
