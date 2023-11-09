@@ -66,7 +66,9 @@ namespace sylvanmats::io::json{
     class Binder{
     private:
         std::unordered_map<std::type_index, std::string> type_names{{std::type_index(typeid(const char*)), "const char*"},
+                                                                    {std::type_index(typeid(std::string_view)), "std::string_view"},
                                                                     {std::type_index(typeid(int)), "int"},
+                                                                    {std::type_index(typeid(unsigned int)), "unsigned int"},
                                                                     {std::type_index(typeid(double)), "double"},
                                                                     {std::type_index(typeid(object)), "object"}};
         std::string jsonContent="";
@@ -222,12 +224,14 @@ namespace sylvanmats::io::json{
         
         inline size_t findIndention(size_t index){
             size_t offset=index;
+            
 //            std::cout<<"findIndention "<<index<<" "<<jsonContent.length()<<std::endl;
+            if(offset>0)
             while((--offset)>0 && jsonContent.at(offset)!='\n' && jsonContent.at(offset)!=',' && jsonContent.at(offset)!='}' && jsonContent.at(offset)!=']'){
                 
             }
 //            if(offset<jsonContent.size()-1)++offset;
-//            std::cout<<"offset "<<offset<<" "<<index<<" "<<tabSize<<std::endl;
+//            std::cout<<"offset "<<offset<<" "<<index<<" "<<4<<std::endl;
             if(index>offset)return (index-offset)/4;
             return 0;
         }

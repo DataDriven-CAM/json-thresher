@@ -17,6 +17,16 @@ cnpm lib
 cnpm test
 
 ```
+## Examples
+
+```
+    sylvanmats::io::json::Path jpSymbol;
+    jpSymbol["elements"]["*"]["symbol"]=="C";
+
+```
+matches any object in the elements array where symbol is C; and from periodic table [Periodic-Table-JSON](https://github.com/Bowserinator/Periodic-Table-JSON.git) 
+and traverses all value pairs for the element by ```jsonBinder(jpName, [&](std::string_view& key, std::any& v){});```.  
+
 ## Contact
 
 My twitch stream is https://www.twitch.tv/sylvanmats

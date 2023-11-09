@@ -143,6 +143,13 @@ namespace sylvanmats::io::json{
             return *this;
         }
         
+        Path& operator==(std::string s){
+            this->s.emplace_back(s);
+            this->p.back().action=TEST;
+            this->p.back().value=std::string_view(this->s.back());
+            return *this;
+        }
+        
         Path& operator[](std::string s){
 //            std::string s(c);
             size_t offset=s.find("=");
@@ -211,8 +218,13 @@ namespace sylvanmats::io::json{
         }
 
         friend std::ostream& operator<<(std::ostream& s, Path& p) {
-        for(auto p : p.p)
-          s <<"/"<< p.label;
+        for(auto p : p.p){
+            if(p.action==TEST){
+                s <<"/"<< p.label<<" == "<<p.value;
+            }
+            else
+                s <<"/"<< p.label;
+        }
           return s;
         }
     };
