@@ -60,56 +60,56 @@ TEST_CASE("test periodic table json") {
 })";
     sylvanmats::io::json::Binder jsonBinder;
     jsonBinder(jsonContent);
-    std::string depthText=fmt::format("{}\n", jsonBinder.depthList);
-    std::cout<<depthText;
+//    std::string depthText=fmt::format("{}\n", jsonBinder.depthList);
+//    std::cout<<depthText;
     sylvanmats::io::json::Path jpName;
     jpName["elements"]["*"]["symbol"]=="H";
+    size_t val=0;
     jsonBinder(jpName, [&](std::string_view& key, std::any& v){
-        std::cout<<"key "<<key<<std::endl;
+//        std::cout<<"key "<<key<<std::endl;
         if(key.compare("number")==0){
-                    std::cout<<"number "<<std::endl;
-                   size_t val=std::any_cast<long>(v);
-                    std::cout<<"number "<<val<<std::endl;
+                   val=std::any_cast<long>(v);
         }
     });
+    CHECK_EQ(val, 1);
 }
 
 TEST_CASE("test create json") {
     sylvanmats::io::json::Binder jsonBinder;
     sylvanmats::io::json::Path jp;
     jsonBinder(jp, "8DR", sylvanmats::io::json::object());
-    CHECK_EQ(jsonBinder.countObjects(), 5);
-    std::cout<<jsonBinder<<std::endl;
+    CHECK_EQ(jsonBinder.countObjects(), 2);
+//    std::cout<<jsonBinder<<std::endl;
     jp["8DR"];
     jsonBinder(jp, "start", 100);
-    std::cout<<jsonBinder<<std::endl;
+//    std::cout<<jsonBinder<<std::endl;
     jsonBinder(jp, "end", 200);
-    std::cout<<jsonBinder<<std::endl;
+//    std::cout<<jsonBinder<<std::endl;
     sylvanmats::io::json::Path jp2;
     jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
+//    std::cout<<jsonBinder<<std::endl;
     jp2["CGU"];
     jsonBinder(jp2, "start", 300);
-    jsonBinder.display();
-    std::cout<<"check: "<<jsonBinder<<std::endl;
-//    jsonBinder(jp2, "end", 400);
+//    jsonBinder.display();
+//    std::cout<<"check: "<<jsonBinder<<std::endl;
+    jsonBinder(jp2, "end", 400);
 ////    //jsonBinder.display();
-//    std::cout<<jsonBinder<<std::endl;
-//    CHECK_EQ(jsonBinder.countObjects(), 10);
-//    sylvanmats::io::json::Path jp3=Root();
+    std::cout<<jsonBinder<<std::endl;
+    CHECK_EQ(jsonBinder.countObjects(), 3);
+    sylvanmats::io::json::Path jp3=Root();
 ////    jp3["8DR"];
 ////    std::cout<<"jp3 "<<jp3<<std::endl;
-//    jsonBinder(jp3, "8DR");
-//    std::cout<<jsonBinder<<std::endl;
-//    CHECK_EQ(jsonBinder.countObjects(), 6);
+    //remove 8DR
+    jsonBinder(jp3, "8DR");
+    std::cout<<jsonBinder<<std::endl;
+    CHECK_EQ(jsonBinder.countObjects(), 2);
 }
 
 TEST_CASE("test reading package.json") {
     sylvanmats::io::json::Binder jsonBinder;
-            std::ifstream is("../package.json");
-            std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
-            jsonBinder(jsonContent);
-            std::string depthText=fmt::format("{}\n", jsonBinder.depthList);
-            std::cout<<depthText;
+        std::ifstream is("../package.json");
+        std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
+        jsonBinder(jsonContent);
         sylvanmats::io::json::Path jpName;
         jpName["name"];
         std::string_view currentPackageName;

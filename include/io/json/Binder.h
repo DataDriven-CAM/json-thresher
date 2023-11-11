@@ -76,6 +76,7 @@ namespace sylvanmats::io::json{
         protected:
         std::vector<std::pair<jobject, std::vector<jobject>>> dag;
         std::vector<int> depthList;
+        size_t objectCount=0;
         
         template<typename I> requires std::same_as<I, size_t>// && std::input_or_output_iterator<I>
         struct node_iterator : public Node<I> {
@@ -171,7 +172,7 @@ namespace sylvanmats::io::json{
 //            }
         }
         
-        size_t countObjects(){return dag.size();}
+        size_t countObjects(){return objectCount;}
         
         void display();
         
@@ -180,7 +181,7 @@ namespace sylvanmats::io::json{
         
         bool isNull(std::span<char>& s, std::span<char>::iterator& it);
         
-        bool match(Path& jp, std::function<void(size_t obj_size, std::string_view& key, std::any& v)> apply);
+        bool match(Path& jp, bool last, std::function<bool(size_t obj_size, std::string_view& key, std::any& v)> apply);
         
 //        void stroll(Path& jp, std::function<void(size_t objIndex, std::string_view& key, std::any& v)> apply, size_t i=0, unsigned int objParent=0);
         
@@ -207,31 +208,32 @@ namespace sylvanmats::io::json{
             }
             else if(type_names[std::type_index(value.type())].compare("object")==0){
                 kv.append("{\n");
-                kv.append("\t}\n");
+                for(size_t ti=0;ti<indention;ti++)kv.append("    ");
+                kv.append("}\n");
             }
             return std::move(kv);
         }
         
         inline size_t findInsertionOffset(size_t index){
             size_t offset=index;
-            if(offset<jsonContent.size() && jsonContent.at(offset)=='\n' ||  jsonContent.at(offset)=='0')return offset;
+            if(offset<jsonContent.size() && jsonContent.at(offset)=='\n' ||  jsonContent.at(offset)>='0')return offset;
             while(++offset<jsonContent.size() && jsonContent.at(offset)!='\n' &&  jsonContent.at(offset)<'0'){
                 
             }
-            if(offset<jsonContent.size()-1)++offset;
+//            if(offset<jsonContent.size()-1)++offset;
             return offset;
         }
         
         inline size_t findIndention(size_t index){
             size_t offset=index;
             
-//            std::cout<<"findIndention "<<index<<" "<<jsonContent.length()<<std::endl;
             if(offset>0)
             while((--offset)>0 && jsonContent.at(offset)!='\n' && jsonContent.at(offset)!=',' && jsonContent.at(offset)!='}' && jsonContent.at(offset)!=']'){
+//            std::cout<<offset<<" findIndention "<<index<<" "<<jsonContent.at(offset)<<" "<<jsonContent.length()<<std::endl;
                 
             }
 //            if(offset<jsonContent.size()-1)++offset;
-//            std::cout<<"offset "<<offset<<" "<<index<<" "<<4<<std::endl;
+            std::cout<<"offset "<<offset<<" "<<index<<" "<<4<<std::endl;
             if(index>offset)return (index-offset)/4;
             return 0;
         }

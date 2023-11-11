@@ -7,7 +7,7 @@ endif
 LD=ld.exe
 
 all: CXXFLAGS= -DNDEBUG -O3 -pthread -std=c++23  -Iinclude -MMD 
-all: LDFLAGS= -shared  -Wl,--allow-multiple-definition -L`pwd`/cpp_modules/fmt/dist/lib -lfmt
+all: LDFLAGS= -shared  -Wl,--allow-multiple-definition -L`pwd` -L`pwd`/cpp_modules/fmt/dist/lib -lfmt
 ifeq ($(OS),Windows_NT)
 all: LDFLAGS=" -Wl,--export-all-symbols ${LDFLAGS}"
 endif
