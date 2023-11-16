@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "description": "c++ io binder for json",
     "main": "index.js",
-    "repository": "https://rimmartin@github.com/DataDriven-CAM/xml-thresher.git",
+    "repository": "https://rimmartin@github.com/DataDriven-CAM/json-thresher.git",
     "private": null,
     "dependencies": {
       "fmt": "fmtlib/fmt"
