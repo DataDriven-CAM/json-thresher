@@ -83,7 +83,7 @@ TEST_CASE("test create json") {
     jp["8DR"];
     jsonBinder(jp, "start", 100);
 //    std::cout<<jsonBinder<<std::endl;
-    jsonBinder(jp, "end", 200);
+//    jsonBinder(jp, "end", 200);
 //    std::cout<<jsonBinder<<std::endl;
     sylvanmats::io::json::Path jp2;
     jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
@@ -93,16 +93,33 @@ TEST_CASE("test create json") {
 //    jsonBinder.display();
 //    std::cout<<"check: "<<jsonBinder<<std::endl;
     jsonBinder(jp2, "end", 400);
+    jsonBinder(jp, "end", 200);
+    sylvanmats::io::json::Path jp3;
+    jsonBinder(jp3, "000", sylvanmats::io::json::object());
+//    std::cout<<jsonBinder<<std::endl;
+    jp3["000"];
+    jsonBinder(jp3, "start", 1);
+//    jsonBinder.display();
+//    std::cout<<"check: "<<jsonBinder<<std::endl;
+    jsonBinder(jp3, "end", 50);
+    sylvanmats::io::json::Path jp4;
+    jsonBinder(jp4, "001", sylvanmats::io::json::object());
+//    std::cout<<jsonBinder<<std::endl;
+    jp4["001"];
+    jsonBinder(jp4, "start", 51);
+//    jsonBinder.display();
+//    std::cout<<"check: "<<jsonBinder<<std::endl;
+    jsonBinder(jp4, "end", 99);
 ////    //jsonBinder.display();
     std::cout<<jsonBinder<<std::endl;
-    CHECK_EQ(jsonBinder.countObjects(), 3);
-    sylvanmats::io::json::Path jp3=Root();
+    CHECK_EQ(jsonBinder.countObjects(), 5);
+    sylvanmats::io::json::Path jp5=Root();
 ////    jp3["8DR"];
 ////    std::cout<<"jp3 "<<jp3<<std::endl;
     //remove 8DR
-    jsonBinder(jp3, "8DR");
+    jsonBinder(jp5, "8DR");
     std::cout<<jsonBinder<<std::endl;
-    CHECK_EQ(jsonBinder.countObjects(), 2);
+    CHECK_EQ(jsonBinder.countObjects(), 4);
 }
 
 TEST_CASE("test reading package.json") {

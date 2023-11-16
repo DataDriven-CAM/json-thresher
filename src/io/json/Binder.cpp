@@ -59,6 +59,13 @@ namespace sylvanmats::io::json{
                         wrap=true;
                     }
                 }
+                else if(dag[obj_size].first.obj_type==PAIR_VALUE){
+//                std::cout<<"add "<<obj_size<<" "<<dag[obj_size].first.obj_type<<std::endl;
+                    indention=depthList[obj_size];
+                       insertionOffset=findInsertionOffset(dag[obj_size].first.value_end);
+                       comma=true;
+                        wrap=true;
+                }
 //                else if(dag[obj_size].first.obj_type==PAIR_KEY && dag[obj_size+1].first.obj_type==START_OBJ && dag[obj_size+1].second.size()==2){
 //                std::cout<<dag[obj_size].second.back().obj_type<<" add match obj and child obj size:"<<" "<<dag[obj_size].second.size()<<" "<<dag[obj_size].first.key_end<<" "<<dag[obj_size].second.front().key<<" "<<dag[obj_size].first.key<<" "<<dag[obj_size].second.back().key<<std::endl;
 //                       insertionOffset=findInsertionOffset(dag[obj_size].first.key_end);

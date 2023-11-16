@@ -3,6 +3,7 @@
     "version": "1.0.0",
     "description": "c++ io binder for json",
     "main": "index.js",
+    "repository": "https://rimmartin@github.com/DataDriven-CAM/xml-thresher.git",
     "private": null,
     "dependencies": {
       "fmt": "fmtlib/fmt"
@@ -17,7 +18,7 @@
         "lib": "which make && make -j 3 -f Makefile all",
         "fmt": "cd cpp_modules/fmt && mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../dist .. && make install",
         "build": "cd test && pwd && mkdir -p build/src && make -j 3 -f Makefile all",
-        "test": "cnpm build && cd test && pwd && ./test "
+        "test": "cnpm build && cd test && pwd && ./test --test-case='test create json'"
     },
     "author": "rimmartin",
     "license": "MIT"
