@@ -120,6 +120,16 @@ TEST_CASE("test create json") {
     jsonBinder(jp5, "8DR");
     std::cout<<jsonBinder<<std::endl;
     CHECK_EQ(jsonBinder.countObjects(), 4);
+    sylvanmats::io::json::Path jp6;
+    jsonBinder(jp6, "8DR", sylvanmats::io::json::object());
+//    std::cout<<jsonBinder<<std::endl;
+    jp6["8DR"];
+    jsonBinder(jp6, "start", 100u);
+//    jsonBinder.display();
+    unsigned long p=200u;
+    std::any pp=p;
+    jsonBinder(jp6, "end", pp);
+    std::cout<<std::type_index(pp.type()).name()<<" check: "<<jsonBinder<<std::endl;
 }
 
 TEST_CASE("test reading package.json") {

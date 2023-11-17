@@ -39,10 +39,8 @@ namespace sylvanmats::io::json{
         std::string_view key;
         size_t key_index=0;
         std::any value_index;
-        size_t key_start=0;
-        size_t key_end=0;
-        size_t value_start=0;
-        size_t value_end=0;
+        size_t start=0;
+        size_t end=0;
     };
 
     struct object{};
@@ -69,6 +67,9 @@ namespace sylvanmats::io::json{
                                                                     {std::type_index(typeid(std::string_view)), "std::string_view"},
                                                                     {std::type_index(typeid(int)), "int"},
                                                                     {std::type_index(typeid(unsigned int)), "unsigned int"},
+                                                                    {std::type_index(typeid(long)), "long"},
+                                                                    {std::type_index(typeid(unsigned long)), "unsigned long"},
+                                                                    {std::type_index(typeid(size_t)), "size_t"},
                                                                     {std::type_index(typeid(double)), "double"},
                                                                     {std::type_index(typeid(object)), "object"}};
         std::string jsonContent="";
@@ -177,7 +178,7 @@ namespace sylvanmats::io::json{
         void display();
         
     protected:
-        void bind(std::string::size_type offset, size_t objParent=0);
+        void bind(std::string::size_type offset);
         
         bool isNull(std::span<char>& s, std::span<char>::iterator& it);
         
@@ -202,6 +203,22 @@ namespace sylvanmats::io::json{
                 kv.append(std::to_string(std::any_cast<int>(value)));
 //                if(!comma)kv.append("\n");
             }
+            else if(type_names[std::type_index(value.type())].compare("unsigned int")==0){
+                kv.append(std::to_string(std::any_cast<unsigned int>(value)));
+//                if(!comma)kv.append("\n");
+            }
+            else if(type_names[std::type_index(value.type())].compare("long")==0){
+                kv.append(std::to_string(std::any_cast<long>(value)));
+//                if(!comma)kv.append("\n");
+            }
+            else if(type_names[std::type_index(value.type())].compare("unsigned long")==0){
+                kv.append(std::to_string(std::any_cast<unsigned long>(value)));
+//                if(!comma)kv.append("\n");
+            }
+            else if(type_names[std::type_index(value.type())].compare("size_t")==0){
+                kv.append(std::to_string(std::any_cast<size_t>(value)));
+//                if(!comma)kv.append("\n");
+            }
             else if(type_names[std::type_index(value.type())].compare("double")==0){
                 kv.append(std::to_string(std::any_cast<double>(value)));
                 if(!comma)kv.append("\n");
@@ -210,6 +227,9 @@ namespace sylvanmats::io::json{
                 kv.append("{\n");
                 for(size_t ti=0;ti<indention;ti++)kv.append("    ");
                 kv.append("}\n");
+            }
+            else{
+                std::cout<<"unsupported "<<std::type_index(value.type()).name()<<std::endl;
             }
             return std::move(kv);
         }
