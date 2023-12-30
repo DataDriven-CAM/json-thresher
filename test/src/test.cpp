@@ -82,15 +82,18 @@ TEST_CASE("test create json") {
 //    std::cout<<jsonBinder<<std::endl;
     jp["8DR"];
     jsonBinder(jp, "start", 100);
+    CHECK_EQ(jsonBinder.countObjects(), 2);
+//    jsonBinder.display();
 //    std::cout<<jsonBinder<<std::endl;
 //    jsonBinder(jp, "end", 200);
 //    std::cout<<jsonBinder<<std::endl;
     sylvanmats::io::json::Path jp2;
     jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
+    CHECK_EQ(jsonBinder.countObjects(), 3);
+//    jsonBinder.display();
 //    std::cout<<jsonBinder<<std::endl;
     jp2["CGU"];
     jsonBinder(jp2, "start", 300);
-//    jsonBinder.display();
 //    std::cout<<"check: "<<jsonBinder<<std::endl;
     jsonBinder(jp2, "end", 400);
     jsonBinder(jp, "end", 200);
@@ -130,6 +133,35 @@ TEST_CASE("test create json") {
     std::any pp=p;
     jsonBinder(jp6, "end", pp);
     std::cout<<std::type_index(pp.type()).name()<<" check: "<<jsonBinder<<std::endl;
+}
+
+TEST_CASE("test create series json") {
+    sylvanmats::io::json::Binder jsonBinder;
+    sylvanmats::io::json::Path jp;
+    jsonBinder(jp, "8DR", sylvanmats::io::json::object());
+    jp["8DR"];
+    size_t count=0;
+    jsonBinder(jp, [&jp, &count]()->std::tuple<bool, std::string_view, std::any>{
+        if(count==0){
+            count++;
+            return std::make_tuple(false, "start", 100);
+        }
+        return std::make_tuple(true, "end", 200);
+    });
+    std::cout<<jsonBinder<<std::endl;
+    sylvanmats::io::json::Path jp2;
+    jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
+    jp2["CGU"];
+    count=0;
+    jsonBinder(jp2, [&jp2, &count]()->std::tuple<bool, std::string_view, std::any>{
+        if(count==0){
+            count++;
+            return std::make_tuple(false, "start", 300);
+        }
+        return std::make_tuple(true, "end", 400);
+    });
+    std::cout<<jsonBinder<<std::endl;
+    CHECK_EQ(jsonBinder.countObjects(), 3);
 }
 
 TEST_CASE("test reading package.json") {

@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <vector>
+#include <chrono>
 
 #include "io/json/Binder.h"
 
@@ -26,61 +27,111 @@ namespace sylvanmats::io::json{
             bind(0);
         }
         else if(jp.p.empty()){
-            size_t insertionOffset=(!dag.empty() && dag.size()>=2) ? findInsertionOffset(dag[dag.size()-2].first.end) : jsonContent.size() - 1;
+            size_t insertionObjSize=(!dag.empty() && dag.size()>=2) ? dag.size()-2 : 1;
+            size_t insertionOffset=/*(!dag.empty() && dag.size()>=2) ?*/ findInsertionOffset(dag[insertionObjSize].first.end);// : jsonContent.size() - 1;
             
 //                std::cout<<dag.back().second.size()<<" "<<insertionOffset<<" indention: "<<dag.back().second.back().key<<" "<<dag.back().second.back().obj_type<<std::endl;
 //                auto s=objects[objects.size()-2];
 //                size_t insertionOffset=s.key_index+1;//findInsertionOffset(s.key_index);
-                size_t indention=depthList[dag.size()-2];//findIndention((insertionOffset>0)? insertionOffset-1 : 0)+1;
+                size_t indention=(!dag.empty() && dag.size()>=2) ?  depthList[insertionObjSize] : depthList[insertionObjSize]+1;
 //                std::cout<<" "<<insertionOffset<<" indention2: "<<indention<<" "<<jsonContent.size()<<std::endl;
-                jsonContent.insert(insertionOffset, typeset(true, true, indention, newKey, newValue));
-                dag.clear();
-                depthList.clear();
-            bind(0);
+                std::string&& kv=typeset(true, true, indention, newKey, newValue);
+//                std::cout<<"jp empty|"<<kv<<"|"<<std::endl;
+                jsonContent.insert(insertionOffset, kv);
+//                dag.resize(insertionObjSize+1);
+//                depthList.resize(insertionObjSize+1);
+//            bind(insertionOffset, depthList.back());
+//                std::cout<<" indent "<<indention<<" insertionOffset "<<insertionOffset<<" total size: "<<jsonContent.size()<<" insertionObjSize "<<insertionObjSize<<" "<<dag.size()<<" "<<depthList.back()<<" start obj: "<<(dag.back().first.obj_type==START_OBJ)<<std::endl;
+            shortenDAG(insertionOffset-1, insertionObjSize);
+//                dag.clear();
+//                depthList.clear();
+//            bind(0);
             
         }
         else {
-            bool hit=match(jp, true, [&](size_t obj_size, std::string_view& key, std::any& v)-> bool{
+            auto start = std::chrono::high_resolution_clock::now();
+            bool hit=match(jp, true, [&](size_t obj_size, std::string_view key, std::any& v)-> bool{
+                auto end = std::chrono::high_resolution_clock::now();
+                matchTime=std::chrono::duration_cast<std::chrono::nanoseconds>(end-start).count()*1.0e-9;
                 size_t insertionOffset=0;
                 size_t indention=0;
                 bool comma=false;
                 bool wrap=false;
+                size_t insertionObjSize=obj_size;
                 if(dag[obj_size].first.obj_type==END_OBJ || dag[obj_size].first.obj_type==END_ARRAY){
-//                    insertionOffset=findInsertionOffset(dag[obj_size].first.end);
-                    indention=depthList[obj_size]+1;//findIndention((insertionOffset>0)? insertionOffset : 0);
-//                    std::cout<<indention<<" "<<dag[obj_size].first.end<<" dag[obj_size].first.start "<<dag[obj_size].first.start<<" "<<insertionOffset<<" "<<jsonContent.at(insertionOffset)<<" "<<std::endl;
+                    indention=depthList[obj_size]+1;
                     if(dag[obj_size-1].first.obj_type==START_OBJ || dag[obj_size-1].first.obj_type==START_ARRAY){
-                       insertionOffset=findInsertionOffset(dag[obj_size-1].first.end);
+                        insertionObjSize=obj_size-1;
+                        insertionOffset=findInsertionOffset(dag[insertionObjSize].first.end);
                         wrap=true;
                     }
                     else{
-                       insertionOffset=findInsertionOffset(dag[obj_size-1].first.end);
+                        insertionObjSize=obj_size-1;
+                        insertionOffset=findInsertionOffset(dag[insertionObjSize].first.end);
                        comma=true;
                         wrap=true;
                     }
                 }
                 else if(dag[obj_size].first.obj_type==PAIR_VALUE){
-//                std::cout<<"add "<<obj_size<<" "<<dag[obj_size].first.obj_type<<std::endl;
+//                    std::cout<<"label "<<jp.p.back().label<<" "<<obj_size<<" "<<dag.size()<<" "<<depthList.size()<<std::endl;
                     indention=depthList[obj_size];
-                       insertionOffset=findInsertionOffset(dag[obj_size].first.end);
+                    insertionObjSize=obj_size;
+                       insertionOffset=findInsertionOffset(dag[insertionObjSize].first.end);
                        comma=true;
                         wrap=true;
                 }
-                jsonContent.insert(insertionOffset, typeset(comma, wrap, indention, newKey, newValue));
-                dag.clear();
-                depthList.clear();
-                bind(0);
+                std::string&& kv=typeset(comma, wrap, indention, newKey, newValue);
+//                std::cout<<"|"<<kv<<"|"<<std::endl;
+                jsonContent.insert(insertionOffset, kv);
+            bindObjSize=insertionObjSize;
+            shortenDAG(insertionOffset-1, insertionObjSize);
+//                dag.clear();
+//                depthList.clear();
+//            bind(0);
                 return true;
             });
         }
         return true;
     }
         
+    void Binder::operator ()(Path& jp, std::function<std::tuple<bool, std::string_view, std::any>(void)> apply){
+        bool hit=match(jp, true, [&](size_t obj_size, std::string_view key, std::any& v)-> bool{
+            bool firstCall=true;
+            bool notfinal=false;
+            bool comma=false;
+            bool wrap=true;
+            size_t insertionOffset=0;
+            size_t indention=0;
+            std::string insertableBlock{};
+            do{
+            auto&& [finialize, newKey, newValue] = apply();
+                if(firstCall){
+                    indention=depthList[obj_size];
+                    size_t insertionObjSize=obj_size;
+                    if(dag[obj_size].first.obj_type==END_OBJ || dag[obj_size].first.obj_type==END_ARRAY){
+                        indention++;
+                        insertionObjSize=obj_size-1;
+                     }
+                    insertionOffset=findInsertionOffset(dag[insertionObjSize].first.end);
+                    firstCall=false;
+                }
+                else comma=true;
+                insertableBlock.append(typeset(comma, wrap, indention, newKey, newValue));
+
+            notfinal=finialize;
+            }while(!notfinal);
+            jsonContent.insert(insertionOffset, insertableBlock);
+            dag.clear();
+            depthList.clear();
+            bind(0);
+            return true;
+        });
+    };
     //remove
     bool Binder::operator ()(Path& jp, std::string removalKey){
         bool ret=false;
-        bool hit=match(jp, false, [&](size_t obj_size, std::string_view& key, std::any& v)->bool{
-            for(jobject& o : dag[obj_size].second | std::views::filter([&](jobject& i){return i.key.compare(removalKey)==0;})){
+        bool hit=match(jp, false, [&](size_t obj_size, std::string_view key, std::any& v)->bool{
+            for(jobject& o : dag[obj_size].second | std::views::filter([&](jobject& i){return substr_view(jsonContent, i.start, i.end).compare(removalKey)==0;})){
                 if(dag[o.obj_size+1].first.obj_type==START_OBJ || dag[o.obj_size+1].first.obj_type==START_ARRAY){
                     std::string::size_type start=dag[o.obj_size].first.start-1;
                     std::string::size_type offset=dag[dag[o.obj_size+1].second.back().obj_size+1].first.end+1;
@@ -100,12 +151,12 @@ namespace sylvanmats::io::json{
         
     //get
     void Binder::operator ()(Path& p, std::function<void(std::any& v)> apply){
-        bool hit=match(p, false, [&apply](size_t obj_size, std::string_view& key, std::any& v)->bool{apply(v);return true;});
+        bool hit=match(p, false, [&apply](size_t obj_size, std::string_view key, std::any& v)->bool{apply(v);return true;});
     }
         
     //traverse
     void Binder::operator ()(Path& p, std::function<void(std::string_view& key, std::any& v)> apply){
-        bool hit=match(p, false, [&](size_t obj_size, std::string_view& key, std::any& v)->bool{
+        bool hit=match(p, false, [&](size_t obj_size, std::string_view key, std::any& v)->bool{
             apply(key, v);
 //            for(auto  vi=std::next(dag[obj_size].second.begin());vi!=dag[obj_size].second.end();++vi){
 //                if((*vi).obj_type==PAIR_KEY && (*std::next(vi)).obj_type==PAIR_VALUE)
@@ -120,33 +171,71 @@ namespace sylvanmats::io::json{
             std::cout<<depthText;
         for(std::vector<std::pair<sylvanmats::io::json::jobject, std::vector<sylvanmats::io::json::jobject>>>::iterator itDAG=dag.begin();itDAG!=dag.end();++itDAG){
             for(size_t ti=0;ti<depthList[(*itDAG).first.obj_size];ti++)std::cout<<"    ";
-            std::cout<<(*itDAG).first.key<<std::endl;
+            std::cout<<jsonContent.substr((*itDAG).first.start, (*itDAG).first.end-(*itDAG).first.start)<<"\t\t"<<(*itDAG).second.size()<<std::endl;
         }
     }
     
-    void Binder::bind(std::string::size_type offset){
+    void Binder::shortenDAG(std::string::size_type insertionOffset, std::string::size_type insertionObjSize){
+            auto startReduction = std::chrono::high_resolution_clock::now();
+            size_t currentDAGSize=dag.size();
+                dag.resize(insertionObjSize);
+                depthList.resize(insertionObjSize);
+                size_t inObjSize=insertionObjSize;
+                if(inObjSize<dag.size())
+                while(inObjSize>0 && !dag[inObjSize].second.empty()){
+                    if(!dag[inObjSize].second.empty()){
+                        bool hit=false;
+                        size_t secondSize=dag[inObjSize].second.size()-1;
+                        for(std::vector<jobject>::reverse_iterator it=dag[inObjSize].second.rbegin();!hit && it!=dag[inObjSize].second.rend();++it){
+                            if(inObjSize>=(*it).obj_size){
+                                hit=true;
+                            }
+                            else
+                                secondSize--;
+                        }
+                        if(hit && secondSize>1)dag[inObjSize].second.resize(secondSize-1);
+                        inObjSize=dag[inObjSize].second.front().obj_size;
+                        
+                    }
+                    else
+                        inObjSize--;
+                }
+//                std::cout<<currentDAGSize<<" resize "<<inObjSize<<" "<<dag.size()<<" indent "<<depthList.back()<<" insertionOffset "<<insertionOffset<<" total size: "<<jsonContent.size()<<" "<<insertionObjSize<<" "<<depthList.back()<<" start obj: "<<(dag.back().first.obj_type==START_OBJ)<<std::endl;
+            auto endReduction = std::chrono::high_resolution_clock::now();
+                int objDiffStart=countObjects();
+                bind(insertionOffset, depthList.back());
+                objDiff=countObjects()-objDiffStart;
+            auto endBind = std::chrono::high_resolution_clock::now();
+                reductionTime=std::chrono::duration_cast<std::chrono::nanoseconds>(endReduction-startReduction).count()*1.0e-9;
+                bindTime=std::chrono::duration_cast<std::chrono::nanoseconds>(endBind-endReduction).count()*1.0e-9;
+    }
+    
+    void Binder::bind(std::string::size_type startOffset, size_t startDepth){
         objectCount=0;
+        size_t depth=startDepth;
+        size_t dagOffset=(!dag.empty())? dag.size()-1 : 0;
         std::span s={jsonContent};
         {
-            std::span<char>::iterator it=s.begin();
-            bool firstObject=true;
+            std::span<char>::iterator it=(startOffset>0) ? s.begin()+startOffset : s.begin();
+            size_t offset=startOffset;
+            bool firstObject=startOffset==0;
             bool hitColon=false;
             bool hitPeriod=false;
-            size_t depth=0;
             while(it!=s.end()){
                 if(isNull(s, it)){
-                    dag.push_back(std::make_pair(jobject{.obj_type=VALUE_NULL, .obj_size=dag.size(), .value_index=std::string_view(it, it+4), .start=std::distance(s.begin(), it), .end=std::distance(s.begin(), it+4)}, std::vector<jobject>{}));
+                    dag.push_back(std::make_pair(jobject{.obj_type=VALUE_NULL, .obj_size=dag.size(), .value_index=std::string_view(it, it+4), .start=offset, .end=offset+4}, std::vector<jobject>{}));
                     depthList.push_back(depth);
                     it+=4;
+                    offset+=4;
                     hitColon=false;
                 }
                 if((*it)=='{'){
                     if(firstObject){
-                        dag.push_back(std::make_pair(jobject{.obj_type=START_OBJ, .obj_size=dag.size(), .key=std::string_view(it, std::next(it)), .value_index=object(), .start=std::distance(s.begin(), it), .end=std::distance(s.begin(), std::next(it))}, std::vector<jobject>{}));
+                        dag.push_back(std::make_pair(jobject{.obj_type=START_OBJ, .obj_size=dag.size(), .value_index=object(), .start=offset, .end=offset+1}, std::vector<jobject>{}));
                     }
                     else{
 //                        if(dag.empty())key="/";
-                       dag.push_back(std::make_pair(jobject{.obj_type=START_OBJ, .obj_size=dag.size(), .key=std::string_view(it, std::next(it)), .key_index=std::distance(s.begin(), it), .value_index=object(), .start=std::distance(s.begin(), it), .end=std::distance(s.begin(), std::next(it))}, std::vector<jobject>{}));                        
+                       dag.push_back(std::make_pair(jobject{.obj_type=START_OBJ, .obj_size=dag.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1}, std::vector<jobject>{}));                        
                     }
                     depthList.push_back(depth);
                     depth++;
@@ -155,18 +244,18 @@ namespace sylvanmats::io::json{
                     objectCount++;
                 }
                 else if((*it)=='}'){
-                    dag.push_back(std::make_pair(jobject{.obj_type=END_OBJ, .obj_size=dag.size(), .key=std::string_view(it, std::next(it)), .key_index=std::distance(s.begin(), it), .start=std::distance(s.begin(), it), .end=std::distance(s.begin(), std::next(it))}, std::vector<jobject>{}));
+                    dag.push_back(std::make_pair(jobject{.obj_type=END_OBJ, .obj_size=dag.size(), .key_index=offset, .start=offset, .end=offset+1}, std::vector<jobject>{}));
                     if(depth>0)depth--;
                     depthList.push_back(depth);
                     hitColon=false;
                 }
                 else if((*it)=='['){
                     if(firstObject){
-                        dag.push_back(std::make_pair(jobject{.obj_type=START_ARRAY, .obj_size=dag.size(), .key=std::string_view(it, std::next(it)), .value_index=object(), .start=std::distance(s.begin(), it), .end=std::distance(s.begin(), it)+1}, std::vector<jobject>{}));
+                        dag.push_back(std::make_pair(jobject{.obj_type=START_ARRAY, .obj_size=dag.size(), .value_index=object(), .start=offset, .end=offset+1}, std::vector<jobject>{}));
                     }
                     else{
 //                        if(dag.empty())key="/";
-                       dag.push_back(std::make_pair(jobject{.obj_type=START_ARRAY, .obj_size=dag.size(), .key=std::string_view(it, std::next(it)), .key_index=std::distance(s.begin(), it), .value_index=object(), .start=std::distance(s.begin(), it), .end=std::distance(s.begin(), it)+1}, std::vector<jobject>{}));                        
+                       dag.push_back(std::make_pair(jobject{.obj_type=START_ARRAY, .obj_size=dag.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1}, std::vector<jobject>{}));                        
                     }
                     depthList.push_back(depth);
                     depth++;
@@ -174,22 +263,26 @@ namespace sylvanmats::io::json{
                     firstObject=false;
                 }
                 else if((*it)==']'){
-                    dag.push_back(std::make_pair(jobject{.obj_type=END_ARRAY, .obj_size=dag.size(), .key=std::string_view(it, std::next(it)), .key_index=std::distance(s.begin(), it), .start=std::distance(s.begin(), it), .end=std::distance(s.begin(), std::next(it))}, std::vector<jobject>{}));
+                    dag.push_back(std::make_pair(jobject{.obj_type=END_ARRAY, .obj_size=dag.size(), .key_index=offset, .start=offset, .end=offset}, std::vector<jobject>{}));
                     if(depth>0)depth--;
                     depthList.push_back(depth);
                     hitColon=false;
                 }
                 else if((*it)=='"'){
-                    it++;
+                    ++it;
+                    offset++;
+                    size_t startOffset=offset;
                     std::span<char>::iterator itStart=it;
                     int c=0;
-                    while((*it)!='"'){if((*it)=='\\')it++;it++;c++;};
+                    while((*it)!='"'){if((*it)=='\\'){++it;offset++;};++it;offset++;c++;};
                     if(!hitColon){
-                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_KEY, .obj_size=dag.size(), .key=std::string_view(itStart, it), .key_index=std::distance(s.begin(), it), .start=std::distance(s.begin(), itStart), .end=std::distance(s.begin(), it)+1}, std::vector<jobject>{}));                        
+//                        if(std::string_view(itStart, it).compare("8DR")==0)
+//                            std::cout<<"PK "<<dag.size()<<" |"<<std::string_view(itStart, it)<<"|"<<startOffset<<" "<<(offset-startOffset)<<std::endl;
+                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_KEY, .obj_size=dag.size(), .key_index=offset, .start=startOffset, .end=offset}, std::vector<jobject>{}));                        
                     }
                     else{
-                        if(std::string_view(itStart, it).compare("H")==0)std::cout<<"PV "<<dag.size()<<" "<<std::string_view(itStart, it)<<std::endl;
-                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key=std::string_view(itStart, it), .key_index=std::distance(s.begin(), it), .value_index=std::string_view(itStart, it), .start=std::distance(s.begin(), itStart), .end=std::distance(s.begin(), it)+1}, std::vector<jobject>{}));                        
+//                        if(std::string_view(itStart, it).compare("H")==0)std::cout<<"PV "<<dag.size()<<" "<<std::string_view(itStart, it)<<std::endl;
+                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::string_view(itStart, it), .start=startOffset, .end=offset}, std::vector<jobject>{}));                        
                         hitColon=false;
                     }
                     depthList.push_back(depth);
@@ -198,14 +291,16 @@ namespace sylvanmats::io::json{
                 else if((*it)=='-' || (*it)=='.' || ((*it)>='0' && (*it)<='9')){
                     std::span<char>::iterator itStart=it;
                     ++it;
+                    offset++;
+                    size_t startOffset=offset;
                     bool hitPeriod=((*it)=='.') ? true : false;
                     int c=0;
-                    while(((*it)>='0' && (*it)<='9') || (*it)=='.'){if(!hitPeriod && (*it)=='.')hitPeriod=true;it++;c++;};
+                    while(((*it)>='0' && (*it)<='9') || (*it)=='.'){if(!hitPeriod && (*it)=='.')hitPeriod=true;++it;offset++;c++;};
                     std::string v(itStart, it);
                     if(hitPeriod)
-                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=std::distance(s.begin(), it), .value_index=std::strtod(v.c_str(), nullptr), .start=std::distance(s.begin(), itStart), .end=std::distance(s.begin(), it)}, std::vector<jobject>{}));                        
+                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::strtod(v.c_str(), nullptr), .start=startOffset, .end=offset}, std::vector<jobject>{}));                        
                     else
-                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=std::distance(s.begin(), it), .value_index=std::strtol(v.c_str(), nullptr, 10), .start=std::distance(s.begin(), itStart), .end=std::distance(s.begin(), it)}, std::vector<jobject>{}));                        
+                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::strtol(v.c_str(), nullptr, 10), .start=startOffset, .end=offset}, std::vector<jobject>{}));                        
                     depthList.push_back(depth);
                     hitColon=false;
                     
@@ -218,14 +313,22 @@ namespace sylvanmats::io::json{
                 }
                 else if((*it)=='\\'){
                     ++it;
+                    offset++;
                 }
                 ++it;
+                offset++;
             }
 //            std::string depthText=fmt::format("{}\n", depthList);
 //            std::cout<<depthText;
-            depth=0;
+            depth=startDepth;
             std::vector<std::pair<jobject, std::vector<jobject>>>::iterator previousNode=dag.end();
-            for(std::vector<std::pair<jobject, std::vector<jobject>>>::iterator itDag=dag.begin();itDag!=dag.end();itDag++){
+            if(dagOffset>0){
+                previousNode=dag.begin()+dagOffset;
+                if((*previousNode).first.obj_type!=START_OBJ && (*previousNode).first.obj_type!=START_ARRAY){
+                    previousNode--;
+                }
+            }
+            for(std::vector<std::pair<jobject, std::vector<jobject>>>::iterator itDag=dag.begin()+dagOffset;itDag!=dag.end();itDag++){
                 size_t currentDepth=depth;
                 if((*itDag).first.obj_type==START_OBJ || (*itDag).first.obj_type==START_ARRAY){
                     if(previousNode!=dag.end()){
@@ -277,13 +380,13 @@ namespace sylvanmats::io::json{
         return true;
     }
 
-    bool Binder::match(Path& jp, bool last, std::function<bool(size_t obj_size, std::string_view& key, std::any& v)> apply){
+    bool Binder::match(Path& jp, bool last, std::function<bool(size_t obj_size, std::string_view key, std::any& v)> apply){
         bool hit=false;
         size_t pi=0;
         int countMap=0;
         std::unordered_map<size_t, bool> matchMap;
         if(jp.p.empty()){
-            if(apply(0, dag[0].first.key, dag[0].first.value_index))hit=true;
+            if(apply(0, substr_view(jsonContent, dag[0].first.start, dag[0].first.end), dag[0].first.value_index))hit=true;
         }
         else
         while(!hit && pi<jp.p.size()){
@@ -296,9 +399,9 @@ namespace sylvanmats::io::json{
             if(depthList[(*ni)]==pi && matchMap.count((*ni)) && matchMap[(*ni)]){
             for(out_edge_iterator<size_t> oei(dag, ni); !hit && oei!=oei.end(); ++oei){
 //                if(depthList[(*oei)]==pi+1 && dag[(*oei)].first.key.compare(jp.p[pi].label)==0)
-//                        std::cout<<" "<<jp.p[pi].label<<" "<<(*oei)<<" "<<depthList[(*oei)]<<" ? "<<(pi+1)<<" "<<dag[(*oei)].first.obj_type<<" "<<dag[(*oei)].first.key<<std::endl;
+//                        std::cout<<" "<<jp.p[pi].label<<" "<<(*oei)<<" "<<depthList[(*oei)]<<" ? "<<(pi+1)<<" "<<dag[(*oei)].first.obj_type<<" "<<substr_view(jsonContent, dag[(*oei)].first.start, dag[(*oei)].first.end)<<" "<<dag[(*oei)].first.end<<std::endl;
                 if(depthList[(*oei)]==pi+1)
-                    if(dag[(*oei)].first.obj_type==PAIR_KEY && (jp.p[pi].label.compare("*")==0 || dag[(*oei)].first.key.compare(jp.p[pi].label)==0)){
+                    if(dag[(*oei)].first.obj_type==PAIR_KEY && (jp.p[pi].label.compare("*")==0 || substr_view(jsonContent, dag[(*oei)].first.start, dag[(*oei)].first.end).compare(jp.p[pi].label)==0)){
 //                        auto nx = std::next(itS);
                         Node<size_t> nextNode((*oei)+1);
 //                        std::cout<<" "<<jp.p[pi].label<<" "<<depthList[(*nextNode)]<<" "<<(pi+1)<<std::endl;
@@ -311,7 +414,7 @@ namespace sylvanmats::io::json{
 //                                    if(dag[(*oeiA)].first.obj_type==PAIR_KEY)std::cout<<" "<<dag[(*oeiA)].first.key;
                                     if(dag[(*oeiA)].first.obj_type==PAIR_KEY && dag[(*oeiA)+1].first.obj_type==PAIR_VALUE){
 //                                    std::cout<<dag[(*nextNode)].second.size()<<" "<<dag[(*oeiA)].first.key<<" how many "<<(*oeiA)<<std::endl;
-                                        if(apply(dag[(*oeiA)].first.obj_size, dag[(*oeiA)].first.key, dag[(*oeiA)+1].first.value_index))hit=true;
+                                        if(apply(dag[(*oeiA)].first.obj_size, substr_view(jsonContent, dag[(*oeiA)].first.start, dag[(*oeiA)].first.end), dag[(*oeiA)+1].first.value_index))hit=true;
                                     }
                                 }
                                 
@@ -319,7 +422,7 @@ namespace sylvanmats::io::json{
                         }
                         else if((*nextNode)<dag.size() && depthList[(*nextNode)]==pi+1 && dag[(*nextNode)].first.obj_type==PAIR_VALUE){
                             if(pi+1>=jp.p.size()){
-                                if(apply((*oei), dag[(*oei)].first.key, dag[(*nextNode)].first.value_index))hit=true;
+                                if(apply((*oei), substr_view(jsonContent, dag[(*oei)].first.start, dag[(*oei)].first.end), dag[(*nextNode)].first.value_index))hit=true;
                                 if(jp.p[pi].label.compare("*")!=0)hit=true;
                             }
                             else if(jp.p[pi].label.compare("*")==0){
@@ -337,17 +440,17 @@ namespace sylvanmats::io::json{
 //                                std::cout<<"obj or array "<<dag[(*nextNode)].first.obj_type<<" "<<dag[(*nextNode)].second.size()<<std::endl;
                                 if(dag[(*nextNode)].first.obj_type==START_OBJ){
                                     if(jp.p[pi].label.compare("*")==0){
-                                        if(apply(dag[(*oei)].first.obj_size, dag[(*oei)].first.key, dag[(*oei)].first.value_index))hit=true;
+                                        if(apply(dag[(*oei)].first.obj_size, substr_view(jsonContent, dag[(*oei)].first.start, dag[(*oei)].first.end), dag[(*oei)].first.value_index))hit=true;
                                     }
                                     else if(last){
-                                        if(apply(dag[(*nextNode)].second.back().obj_size, dag[(*nextNode)].second.back().key, dag[(*nextNode)].second.back().value_index))hit=true;
+                                        if(apply(dag[(*nextNode)].second.back().obj_size, substr_view(jsonContent, dag[(*nextNode)].second.back().start, dag[(*nextNode)].second.back().end), dag[(*nextNode)].second.back().value_index))hit=true;
                                     }
                                     else
                                     for(out_edge_iterator<size_t> oeiA(dag, nextNode); !hit && oeiA!=oeiA.end(); ++oeiA){
 //                                        if(dag[(*oeiA)].first.obj_type==PAIR_KEY)std::cout<<" "<<dag[(*oeiA)].first.key;
                                         if(dag[(*oeiA)].first.obj_type==PAIR_KEY && dag[(*oeiA)+1].first.obj_type==PAIR_VALUE){
 //                                        std::cout<<dag[(*nextNode)].second.size()<<" "<<dag[(*oeiA)].first.key<<" how many "<<(*oeiA)<<std::endl;
-                                            if(apply(dag[(*oeiA)].first.obj_size, dag[(*oeiA)].first.key, dag[(*oeiA)+1].first.value_index))hit=true;
+                                            if(apply(dag[(*oeiA)].first.obj_size, substr_view(jsonContent, dag[(*oeiA)].first.start, dag[(*oeiA)].first.end), dag[(*oeiA)+1].first.value_index))hit=true;
                                         }
                                     }
                                     if(jp.p[pi].label.compare("*")!=0)hit=true;
@@ -357,7 +460,7 @@ namespace sylvanmats::io::json{
                                     for(out_edge_iterator<size_t> oeiA(dag, nextNode); !hit && oeiA!=oeiA.end(); ++oeiA){
     //                                    if(dag[(*oeiA)].first.obj_type==PAIR_KEY)std::cout<<" "<<dag[(*oeiA)].first.key;
                                         if(dag[(*oeiA)].first.obj_type==PAIR_KEY)
-                                        if(apply(dag[(*oeiA)].first.obj_size, dag[(*oeiA)].first.key, dag[(*oeiA)].first.value_index))hit=true;
+                                        if(apply(dag[(*oeiA)].first.obj_size, substr_view(jsonContent, dag[(*oeiA)].first.start, dag[(*oeiA)].first.end), dag[(*oeiA)].first.value_index))hit=true;
                                     }
                                     if(jp.p[pi].label.compare("*")!=0)hit=true;
     //                            std::cout<<std::endl;

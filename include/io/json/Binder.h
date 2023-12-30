@@ -20,6 +20,14 @@
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 
+inline const std::string_view substr_view(const std::string& source, size_t offset = 0,
+                std::string_view::size_type count = 
+                std::numeric_limits<std::string_view::size_type>::max()) {
+    if (offset < source.size()) 
+        return std::string_view(source.data() + offset, count - offset);
+    return {};
+}
+
 namespace sylvanmats::io::json{
 
     enum OBECT_TYPE{
@@ -36,7 +44,6 @@ namespace sylvanmats::io::json{
     struct jobject{
         OBECT_TYPE obj_type;
         size_t obj_size;
-        std::string_view key;
         size_t key_index=0;
         std::any value_index;
         size_t start=0;
@@ -71,7 +78,8 @@ namespace sylvanmats::io::json{
                                                                     {std::type_index(typeid(unsigned long)), "unsigned long"},
                                                                     {std::type_index(typeid(size_t)), "size_t"},
                                                                     {std::type_index(typeid(double)), "double"},
-                                                                    {std::type_index(typeid(object)), "object"}};
+                                                                    {std::type_index(typeid(object)), "object"},
+                                                                    {std::type_index(typeid(array)), "array"}};
         std::string jsonContent="";
 //        std::vector<jobject> objects;
         protected:
@@ -138,6 +146,11 @@ namespace sylvanmats::io::json{
         friend bool operator==(const out_edge_iterator<size_t>& orig, const out_edge_iterator<size_t>& other){ return orig.internal_index==other.internal_index;};
         friend bool operator!=(const out_edge_iterator<size_t>& orig, const out_edge_iterator<size_t>& other){ return orig.internal_index!=other.internal_index;};
         
+        double  matchTime=0.0;
+        double  reductionTime=0.0;
+        double  bindTime=0.0;
+        int objDiff=0;
+        size_t bindObjSize=0;
     public:
         Binder()=default;
         Binder(const Binder& orig) =  delete;
@@ -149,19 +162,20 @@ namespace sylvanmats::io::json{
         void operator ()(std::string& jsonContent);
         
         //add
-        bool operator ()(Path& p, std::string_view key, std::any value);
+        bool operator ()(Path& p, std::string_view newKey, std::any newValue);
+        void operator ()(Path& p, std::function<std::tuple<bool, std::string_view, std::any>(void)> apply);
         
         //remove
-        bool operator ()(Path& jp, std::string key);
+        bool operator ()(Path& jp, std::string keyToRemove);
         
         //get
-        void operator ()(Path& p, std::function<void(std::any& v)> apply);
+        void operator ()(Path& p, std::function<void(std::any& gottenValue)> apply);
         
         //traverse
-        void operator ()(Path& p, std::function<void(std::string_view& key, std::any& v)> apply);
+        void operator ()(Path& p, std::function<void(std::string_view& traverseKey, std::any& traverValue)> apply);
         
         //traverse sibling
-        void operator ()(Path& p, std::string_view sibling, std::function<void(std::string_view& key, std::any& v)> apply){
+        void operator ()(Path& p, std::string_view sibling, std::function<void(std::string_view& traverseKey, std::any& traverValue)> apply){
 //            for(auto d : p.p){
 //                for(auto s : objects | std::views::filter([&sibling](jobject& s){return s.key.compare(sibling)==0;})){
 ////                    std::cout<<std::get<OBJ_SIZE>(s)<<" here "<<s.obj_size<<" "<<s.key<<std::endl;
@@ -173,16 +187,22 @@ namespace sylvanmats::io::json{
 //            }
         }
         
-        size_t countObjects(){return objectCount;}
+        size_t countObjects(){
+            objectCount=0;
+            for(auto& n:  dag)
+                if(n.first.obj_type==START_OBJ)objectCount++;
+            return objectCount;
+        };
         
         void display();
         
     protected:
-        void bind(std::string::size_type offset);
+        void shortenDAG(std::string::size_type insertionOffset, std::string::size_type offset);
+        void bind(std::string::size_type offset, size_t depth=0);
         
         bool isNull(std::span<char>& s, std::span<char>::iterator& it);
         
-        bool match(Path& jp, bool last, std::function<bool(size_t obj_size, std::string_view& key, std::any& v)> apply);
+        bool match(Path& jp, bool last, std::function<bool(size_t obj_size, std::string_view key, std::any& v)> apply);
         
 //        void stroll(Path& jp, std::function<void(size_t objIndex, std::string_view& key, std::any& v)> apply, size_t i=0, unsigned int objParent=0);
         
@@ -236,8 +256,8 @@ namespace sylvanmats::io::json{
         
         inline size_t findInsertionOffset(size_t index){
             size_t offset=index;
-            if(offset<jsonContent.size() && jsonContent.at(offset)=='\n' ||  jsonContent.at(offset)>='0')return offset;
-            while(++offset<jsonContent.size() && jsonContent.at(offset)!='\n' &&  jsonContent.at(offset)<'0'){
+            if(offset<jsonContent.size() && (jsonContent.at(offset)=='\n' ||  jsonContent.at(offset)>='0'))return offset;
+            while(++offset<jsonContent.size()-1 && jsonContent.at(offset)!='\n' &&  jsonContent.at(offset)<'0'){
                 
             }
 //            if(offset<jsonContent.size()-1)++offset;
