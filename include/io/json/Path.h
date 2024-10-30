@@ -109,6 +109,18 @@ namespace sylvanmats::io::json{
         element::size_type max_size(){return std::numeric_limits<element::size_type>::max() / sizeof(element);};//std::allocator_traits<std::allocator<element>>::max_size;};
         
         bool empty(){return n==0;};
+        std::string string(){
+            std::string ret{};
+            for(auto e : p){
+                if(e.action==TEST){
+                    ret.append("/").append(e.label).append(" == ").append(e.value);
+                }
+                else{
+                    ret.append("/").append(e.label);
+                    }
+            }
+            return ret;
+        };
         
 //        Path& operator=(const Path& p){
 //            return *this = Path(p);

@@ -408,7 +408,7 @@ namespace sylvanmats::io::json{
                         if(pi+1>=jp.p.size() && jp.p[pi].action==TEST){
 //                            std::cout<<depthList[(*nextNode)]<<" "<<(pi+1)<<" "<<dag[(*nextNode)].first.obj_type<<" in test "<<jp.p[pi].value<<" "<<dag[(*nextNode)].first.key<<" "<<dag[(*nextNode)].first.value_index.has_value()<<" "<<std::type_index(typeid(dag[(*nextNode)].first.value_index)).name()<<" "<<std::type_index(typeid(std::string_view)).name()<<" "<<type_names[std::type_index(dag[(*nextNode)].first.value_index.type())]<<" "<<std::any_cast<std::string_view>(dag[(*nextNode)].first.value_index)<<std::endl;
                             if((*nextNode)<dag.size() && depthList[(*nextNode)]==pi+1 && dag[(*nextNode)].first.obj_type==PAIR_VALUE && dag[(*nextNode)].first.value_index.has_value() && jp.p[pi].value.compare(std::any_cast<std::string_view>(dag[(*nextNode)].first.value_index))==0){
-                                std::cout<<pi<<" TEST "<<jp.p[pi].label<<" "<<jp.p[pi].value<<std::endl;
+//                                std::cout<<pi<<" TEST "<<jp.p[pi].label<<" "<<jp.p[pi].value<<std::endl;
                                 Node<size_t> previousNode(dag[(*oei)].second.front().obj_size);
                                 for(out_edge_iterator<size_t> oeiA(dag, previousNode); !hit && oeiA!=oeiA.end(); ++oeiA){
 //                                    if(dag[(*oeiA)].first.obj_type==PAIR_KEY)std::cout<<" "<<dag[(*oeiA)].first.key;
