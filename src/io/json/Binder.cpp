@@ -19,7 +19,7 @@ namespace sylvanmats::io::json{
         
     //add
     bool Binder::operator ()(Path& jp, std::string_view newKey, std::any newValue){
-        if(!newKey.empty() && newKey.at(0)=='/')newKey=newKey.substr(0);
+        if(!newKey.empty() && newKey.at(0)=='/')newKey=newKey.substr(1);
         if(jsonContent.empty()){
             jsonContent.append("{\n");
             jsonContent.append(typeset(false, false, 1, newKey, newValue));
