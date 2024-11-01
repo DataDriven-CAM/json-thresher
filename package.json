@@ -11,14 +11,15 @@
     "devDependencies": {
         "doctest": "onqtam/doctest",
         "mime-db": "1.42.0",
-        "json-graph-specification": "jsongraph/json-graph-specification"
+        "json-graph-specification": "jsongraph/json-graph-specification",
+        "graph-v2": "stdgraph/graph-v2"
     },
     "scripts": {
         "clean": "make clean",
         "lib": "which make && make -j 3 -f Makefile all",
         "fmt": "cd cpp_modules/fmt && mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../dist .. && make install",
         "build": "cd test && pwd && mkdir -p build/src && make -j 3 -f Makefile all",
-        "test": "cnpm build && cd test && pwd && ./test --test-case='test create json'"
+        "test": "cnpm build && cd test && pwd && ./test --test-case='test reading package.json'"
     },
     "author": "rimmartin",
     "license": "MIT"
