@@ -196,35 +196,10 @@ TEST_CASE("test reading package.json") {
             count++;
         });
         CHECK_EQ(count, 3);
+        CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 47);
+        CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 45);
         
-        using G = graph::container::compressed_graph<int, sylvanmats::io::json::jobject>;
-        G astGraph;//{{0,1,1}, {1,2,1}};
-
-        std::vector<sylvanmats::io::json::jobject> vertices;
-        for(std::vector<std::pair<sylvanmats::io::json::jobject, std::vector<sylvanmats::io::json::jobject>>>::iterator it=jsonBinder.dag.begin();it!=jsonBinder.dag.end();it++){
-            vertices.push_back((*it).first);
-        }
-        std::vector<std::tuple<graph::vertex_id_t<G>, graph::vertex_id_t<G>, int>> edges;
-        for(std::vector<std::pair<sylvanmats::io::json::jobject, std::vector<sylvanmats::io::json::jobject>>>::iterator it=jsonBinder.dag.begin();it!=jsonBinder.dag.end();it++){
-            for(std::vector<sylvanmats::io::json::jobject>::iterator it2=(*it).second.begin();it2!=(*it).second.end();it2++){
-                edges.push_back(std::make_tuple((*it2).obj_size, (*it).first.obj_size, 1));
-            }
-        }
-
-        using value = std::ranges::range_value_t<decltype(edges)>;
-        graph::vertex_id_t<G> N = static_cast<graph::vertex_id_t<G>>(size(graph::vertices(astGraph)));
-        using edge_desc  = graph::edge_descriptor<graph::vertex_id_t<G>, true, void, int>;
-        //astGraph.reserve(3);
-        astGraph.load_edges(edges, [](const value& val) -> edge_desc {
-            return edge_desc{std::get<0>(val), std::get<1>(val), std::get<2>(val)};
-          }, N);
-        astGraph.load_vertices(vertices, [&vertices](sylvanmats::io::json::jobject& nm) {
-            auto uid = static_cast<graph::vertex_id_t<G>>(&nm - vertices.data());
-            std::cout<<"uid "<<uid<<std::endl;
-            return graph::copyable_vertex_t<graph::vertex_id_t<G>, sylvanmats::io::json::jobject>{uid, nm};
-  });
-        std::cout<<"size: "<<graph::num_vertices(astGraph)<<" "<<graph::vertices(astGraph).size()<<std::endl;
-        CHECK_EQ(graph::num_vertices(astGraph), 45);
+        
 }
 
 TEST_CASE("test reading mimes db.json") {

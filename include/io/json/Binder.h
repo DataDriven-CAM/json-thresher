@@ -19,6 +19,7 @@
 #define FMT_HEADER_ONLY
 #include "fmt/format.h"
 #include "fmt/ranges.h"
+#include "graph/container/compressed_graph.hpp"
 
 inline const std::string_view substr_view(const std::string& source, size_t offset = 0,
                 std::string_view::size_type count = 
@@ -68,6 +69,8 @@ namespace sylvanmats::io::json{
         mutable I target;
     };
     
+    using G = graph::container::compressed_graph<int, sylvanmats::io::json::jobject>;
+
     class Binder{
     private:
         std::unordered_map<std::type_index, std::string> type_names{{std::type_index(typeid(const char*)), "const char*"},
@@ -83,6 +86,10 @@ namespace sylvanmats::io::json{
         std::string jsonContent="";
 //        std::vector<jobject> objects;
         protected:
+        G dagGraph;
+        std::vector<sylvanmats::io::json::jobject> vertices;
+        std::vector<std::tuple<graph::vertex_id_t<G>, graph::vertex_id_t<G>, int>> edges;
+
         std::vector<std::pair<jobject, std::vector<jobject>>> dag;
         std::vector<int> depthList;
         size_t objectCount=0;
