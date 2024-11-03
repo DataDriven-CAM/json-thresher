@@ -1,0 +1,8 @@
+%\newcommand\normalize[3][(0,0,0)]{{%
+%  \draw[red,->] #1 -- ($#1!1cm!#2$);}}
+
+\begin{{tikzpicture}}[>=latex]
+{coordinates:}
+{draws}
+\end{{tikzpicture}}
+

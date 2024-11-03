@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <algorithm>
 #include <iomanip>
 #include <vector>
@@ -222,9 +223,13 @@ namespace sylvanmats::io::json{
             bool firstObject=startOffset==0;
             bool hitColon=false;
             bool hitPeriod=false;
+            std::vector<std::vector<size_t>> depthProfile;
+            for(int di=0;di<depth;di++)depthProfile.push_back(std::vector<size_t>{});
             while(it!=s.end()){
                 if(isNull(s, it)){
-                    vertices.push_back(jobject{.obj_type=VALUE_NULL, .obj_size=dag.size(), .value_index=std::string_view(it, it+4), .start=offset, .end=offset+4});
+                    vertices.push_back(jobject{.obj_type=VALUE_NULL, .obj_size=vertices.size(), .value_index=std::string_view(it, it+4), .start=offset, .end=offset+4, .depth=depth});
+                    if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                    depthProfile[depth].push_back(vertices.back().obj_size);
                     dag.push_back(std::make_pair(jobject{.obj_type=VALUE_NULL, .obj_size=dag.size(), .value_index=std::string_view(it, it+4), .start=offset, .end=offset+4}, std::vector<jobject>{}));
                     depthList.push_back(depth);
                     it+=4;
@@ -233,12 +238,16 @@ namespace sylvanmats::io::json{
                 }
                 if((*it)=='{'){
                     if(firstObject){
-                        vertices.push_back(jobject{.obj_type=START_OBJ, .obj_size=dag.size(), .value_index=object(), .start=offset, .end=offset+1});
+                        vertices.push_back(jobject{.obj_type=START_OBJ, .obj_size=vertices.size(), .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
+                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                        depthProfile[depth].push_back(vertices.back().obj_size);
                         dag.push_back(std::make_pair(jobject{.obj_type=START_OBJ, .obj_size=dag.size(), .value_index=object(), .start=offset, .end=offset+1}, std::vector<jobject>{}));
                     }
                     else{
 //                        if(dag.empty())key="/";
-                       vertices.push_back(jobject{.obj_type=START_OBJ, .obj_size=dag.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1});
+                       vertices.push_back(jobject{.obj_type=START_OBJ, .obj_size=vertices.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
+                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                        depthProfile[depth].push_back(vertices.back().obj_size);
                        dag.push_back(std::make_pair(jobject{.obj_type=START_OBJ, .obj_size=dag.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1}, std::vector<jobject>{}));                        
                     }
                     depthList.push_back(depth);
@@ -248,7 +257,9 @@ namespace sylvanmats::io::json{
                     objectCount++;
                 }
                 else if((*it)=='}'){
-                    vertices.push_back(jobject{.obj_type=END_OBJ, .obj_size=dag.size(), .key_index=offset, .start=offset, .end=offset+1});
+                    vertices.push_back(jobject{.obj_type=END_OBJ, .obj_size=vertices.size(), .key_index=offset, .start=offset, .end=offset+1, .depth=depth});
+                    if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                    depthProfile[depth].push_back(vertices.back().obj_size);
                     dag.push_back(std::make_pair(jobject{.obj_type=END_OBJ, .obj_size=dag.size(), .key_index=offset, .start=offset, .end=offset+1}, std::vector<jobject>{}));
                     if(depth>0)depth--;
                     depthList.push_back(depth);
@@ -256,12 +267,16 @@ namespace sylvanmats::io::json{
                 }
                 else if((*it)=='['){
                     if(firstObject){
-                        vertices.push_back(jobject{.obj_type=START_ARRAY, .obj_size=dag.size(), .value_index=object(), .start=offset, .end=offset+1});
+                        vertices.push_back(jobject{.obj_type=START_ARRAY, .obj_size=vertices.size(), .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
+                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                        depthProfile[depth].push_back(vertices.back().obj_size);
                         dag.push_back(std::make_pair(jobject{.obj_type=START_ARRAY, .obj_size=dag.size(), .value_index=object(), .start=offset, .end=offset+1}, std::vector<jobject>{}));
                     }
                     else{
 //                        if(dag.empty())key="/";
-                       vertices.push_back(jobject{.obj_type=START_ARRAY, .obj_size=dag.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1});
+                       vertices.push_back(jobject{.obj_type=START_ARRAY, .obj_size=vertices.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
+                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                        depthProfile[depth].push_back(vertices.back().obj_size);
                        dag.push_back(std::make_pair(jobject{.obj_type=START_ARRAY, .obj_size=dag.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1}, std::vector<jobject>{}));                        
                     }
                     depthList.push_back(depth);
@@ -270,7 +285,9 @@ namespace sylvanmats::io::json{
                     firstObject=false;
                 }
                 else if((*it)==']'){
-                    vertices.push_back(jobject{.obj_type=END_ARRAY, .obj_size=dag.size(), .key_index=offset, .start=offset, .end=offset});
+                    vertices.push_back(jobject{.obj_type=END_ARRAY, .obj_size=vertices.size(), .key_index=offset, .start=offset, .end=offset, .depth=depth});
+                    if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                    depthProfile[depth].push_back(vertices.back().obj_size);
                     dag.push_back(std::make_pair(jobject{.obj_type=END_ARRAY, .obj_size=dag.size(), .key_index=offset, .start=offset, .end=offset}, std::vector<jobject>{}));
                     if(depth>0)depth--;
                     depthList.push_back(depth);
@@ -286,12 +303,16 @@ namespace sylvanmats::io::json{
                     if(!hitColon){
 //                        if(std::string_view(itStart, it).compare("8DR")==0)
 //                            std::cout<<"PK "<<dag.size()<<" |"<<std::string_view(itStart, it)<<"|"<<startOffset<<" "<<(offset-startOffset)<<std::endl;
-                        vertices.push_back(jobject{.obj_type=PAIR_KEY, .obj_size=dag.size(), .key_index=offset, .start=startOffset, .end=offset});
+                        vertices.push_back(jobject{.obj_type=PAIR_KEY, .obj_size=vertices.size(), .key_index=offset, .start=startOffset, .end=offset, .depth=depth});
+                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                        depthProfile[depth].push_back(vertices.back().obj_size);
                         dag.push_back(std::make_pair(jobject{.obj_type=PAIR_KEY, .obj_size=dag.size(), .key_index=offset, .start=startOffset, .end=offset}, std::vector<jobject>{}));                        
                     }
                     else{
 //                        if(std::string_view(itStart, it).compare("H")==0)std::cout<<"PV "<<dag.size()<<" "<<std::string_view(itStart, it)<<std::endl;
-                        vertices.push_back(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::string_view(itStart, it), .start=startOffset, .end=offset});
+                        vertices.push_back(jobject{.obj_type=PAIR_VALUE, .obj_size=vertices.size(), .key_index=offset, .value_index=std::string_view(itStart, it), .start=startOffset, .end=offset, .depth=depth});
+                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                        depthProfile[depth].push_back(vertices.back().obj_size);
                         dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::string_view(itStart, it), .start=startOffset, .end=offset}, std::vector<jobject>{}));                        
                         hitColon=false;
                     }
@@ -308,12 +329,16 @@ namespace sylvanmats::io::json{
                     while(((*it)>='0' && (*it)<='9') || (*it)=='.'){if(!hitPeriod && (*it)=='.')hitPeriod=true;++it;offset++;c++;};
                     std::string v(itStart, it);
                     if(hitPeriod){
-                        vertices.push_back(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::strtod(v.c_str(), nullptr), .start=startOffset, .end=offset});
+                        vertices.push_back(jobject{.obj_type=PAIR_VALUE, .obj_size=vertices.size(), .key_index=offset, .value_index=std::strtod(v.c_str(), nullptr), .start=startOffset, .end=offset, .depth=depth});
+                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                        depthProfile[depth].push_back(vertices.back().obj_size);
                         dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::strtod(v.c_str(), nullptr), .start=startOffset, .end=offset}, std::vector<jobject>{}));                        
                     }
                     else{
-                        vertices.push_back(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::strtol(v.c_str(), nullptr, 10), .start=startOffset, .end=offset});
-                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::strtol(v.c_str(), nullptr, 10), .start=startOffset, .end=offset}, std::vector<jobject>{}));                        
+                        vertices.push_back(jobject{.obj_type=PAIR_VALUE, .obj_size=dag.size(), .key_index=offset, .value_index=std::strtol(v.c_str(), nullptr, 10), .start=startOffset, .end=offset, .depth=depth});
+                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                        depthProfile[depth].push_back(vertices.back().obj_size);
+                        dag.push_back(std::make_pair(jobject{.obj_type=PAIR_VALUE, .obj_size=vertices.size(), .key_index=offset, .value_index=std::strtol(v.c_str(), nullptr, 10), .start=startOffset, .end=offset}, std::vector<jobject>{}));                        
                     }
                     depthList.push_back(depth);
                     hitColon=false;
@@ -334,6 +359,46 @@ namespace sylvanmats::io::json{
             }
 //            std::string depthText=fmt::format("{}\n", depthList);
 //            std::cout<<depthText;
+            /*for(std::vector<std::vector<size_t>>::iterator it=depthProfile.begin();it!=depthProfile.end();it++){
+                std::cout<<(std::distance(depthProfile.begin(), it))<<std::endl;
+                std::string depthProfile=fmt::format("{}\n", (*it));
+                std::cout<<"\t"<<depthProfile;
+            }*/
+            for(std::vector<sylvanmats::io::json::jobject>::iterator itDag=vertices.begin()+dagOffset;itDag!=vertices.end();itDag++){
+                size_t currentDepth=(*itDag).depth;
+                if((*itDag).obj_type==START_OBJ || (*itDag).obj_type==START_ARRAY){
+                    if(currentDepth>0){
+                        size_t parentObjSize=depthProfile[currentDepth-1].back();
+                        bool hit=false;
+                        for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth-1].rbegin();!hit && it!=depthProfile[currentDepth-1].rend();it++)
+                            if(parentObjSize>=(*itDag).obj_size)parentObjSize=vertices[(*it)].obj_size;
+                            else hit=true;
+                        if(hit)edges.push_back(std::make_tuple((*itDag).obj_size, vertices[parentObjSize].obj_size, 1));
+                    }
+                }
+                else if((*itDag).obj_type==END_OBJ || (*itDag).obj_type==END_ARRAY){
+                    if(currentDepth>0){
+                        OBECT_TYPE objType=((*itDag).obj_type==END_OBJ) ? START_OBJ : START_ARRAY;
+                        size_t parentObjSize=depthProfile[currentDepth].back();
+                        bool hit=false;
+                        for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth].rbegin();!hit && it!=depthProfile[currentDepth].rend();it++)
+                            if(parentObjSize>=(*itDag).obj_size || vertices[parentObjSize].obj_type!=objType)parentObjSize=vertices[(*it)].obj_size;
+                            else hit=true;
+                        edges.push_back(std::make_tuple((*itDag).obj_size, vertices[parentObjSize].obj_size, 1));
+                    }
+                }
+                else if((*itDag).obj_type==VALUE_PAIR || (*itDag).obj_type==PAIR_KEY || (*itDag).obj_type==PAIR_VALUE){
+                    if(currentDepth>0){
+                        size_t parentObjSize=depthProfile[currentDepth-1].back();
+                        bool hit=false;
+                        for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth-1].rbegin();!hit && it!=depthProfile[currentDepth-1].rend();it++)
+                        if(parentObjSize>=(*itDag).obj_size)parentObjSize=vertices[(*it)].obj_size;
+                        else hit=true;
+//                        std::cout<<"VP "<<hit<<" "<<parentObjSize<<" "<<(*itDag).obj_size<<std::endl;
+                        if(hit)edges.push_back(std::make_tuple((*itDag).obj_size, vertices[parentObjSize].obj_size, 1));
+                    }
+                }
+            }
             depth=startDepth;
             std::vector<std::pair<jobject, std::vector<jobject>>>::iterator previousNode=dag.end();
             if(dagOffset>0){
@@ -348,7 +413,6 @@ namespace sylvanmats::io::json{
                     if(previousNode!=dag.end()){
                         (*previousNode).second.push_back((*itDag).first);
                         (*itDag).second.push_back((*previousNode).first);
-                        edges.push_back(std::make_tuple((*previousNode).first.obj_size, (*itDag).first.obj_size, 1));
                     }
                     previousNode=itDag;
                     depth++;
@@ -366,14 +430,12 @@ namespace sylvanmats::io::json{
                         previousNode=std::next(dag.begin(), vOffset);
                         (*previousNode).second.push_back((*itDag).first);
                         (*itDag).second.push_back((*previousNode).first);
-                        edges.push_back(std::make_tuple((*previousNode).first.obj_size, (*itDag).first.obj_size, 1));
                     }
                 }
                 else if((*itDag).first.obj_type==VALUE_PAIR || (*itDag).first.obj_type==PAIR_KEY || (*itDag).first.obj_type==PAIR_VALUE){
                     if(previousNode!=dag.end()){
                         (*previousNode).second.push_back((*itDag).first);
                         (*itDag).second.push_back((*previousNode).first);
-                        edges.push_back(std::make_tuple((*previousNode).first.obj_size, (*itDag).first.obj_size, 1));
                     }
                 }
             }
@@ -381,15 +443,16 @@ namespace sylvanmats::io::json{
             graph::vertex_id_t<G> N = static_cast<graph::vertex_id_t<G>>(size(graph::vertices(dagGraph)));
             using edge_desc  = graph::edge_descriptor<graph::vertex_id_t<G>, true, void, int>;
             //dagGraph.reserve(3);
-            dagGraph.load_edges(edges, [](const value& val) -> edge_desc {
-                return edge_desc{std::get<0>(val), std::get<1>(val), std::get<2>(val)};
-              }, N);
             dagGraph.load_vertices(vertices, [&](sylvanmats::io::json::jobject& nm) {
                 auto uid = static_cast<graph::vertex_id_t<G>>(&nm - vertices.data());
                 return graph::copyable_vertex_t<graph::vertex_id_t<G>, sylvanmats::io::json::jobject>{uid, nm};
               });
+            dagGraph.load_edges(edges, [](const value& val) -> edge_desc {
+                    //std::cout<<"edge "<<std::get<0>(val)<<" "<<std::get<1>(val)<<" "<<std::get<2>(val)<<std::endl;
+                return edge_desc{std::get<0>(val), std::get<1>(val), std::get<2>(val)};
+              }, N);
             
-        }        
+        }
     }
 
     bool Binder::isNull(std::span<char>& s, std::span<char>::iterator& it){

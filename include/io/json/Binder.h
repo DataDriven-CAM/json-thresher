@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdio>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -49,6 +50,7 @@ namespace sylvanmats::io::json{
         std::any value_index;
         size_t start=0;
         size_t end=0;
+        size_t depth=0;
     };
 
     struct object{};
@@ -83,9 +85,9 @@ namespace sylvanmats::io::json{
                                                                     {std::type_index(typeid(double)), "double"},
                                                                     {std::type_index(typeid(object)), "object"},
                                                                     {std::type_index(typeid(array)), "array"}};
+        protected:
         std::string jsonContent="";
 //        std::vector<jobject> objects;
-        protected:
         G dagGraph;
         std::vector<sylvanmats::io::json::jobject> vertices;
         std::vector<std::tuple<graph::vertex_id_t<G>, graph::vertex_id_t<G>, int>> edges;

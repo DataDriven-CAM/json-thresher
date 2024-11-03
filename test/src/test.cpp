@@ -3,6 +3,7 @@
 #define DOCTEST_CONFIG_TREAT_CHAR_STAR_AS_STRING
 #include <doctest/doctest.h>
 
+#include <cstdio>
 #include <fstream>
 #include <ranges>
 #include <deque>
@@ -12,6 +13,15 @@
 
 #define FMT_HEADER_ONLY
 #include "graph/container/compressed_graph.hpp"
+#include "graph/views/incidence.hpp"
+#include "graph/views/vertexlist.hpp"
+
+enum struct directedness : int8_t {
+  directed,   // a single edge joins 2 vertices
+  directed2,  // 2 edges join 2 vertices, each with different directions; needed for graphviz
+  undirected, // one or more edges exist between vertices with no direction
+  bidirected  // a single edge between vertices with direction both ways (similar to undirected, but with arrows)
+};
 
 TEST_SUITE("main"){
 
@@ -170,6 +180,7 @@ TEST_CASE("test create series json") {
 }
 
 TEST_CASE("test reading package.json") {
+std::cout<<"bind package "<<std::endl;
     sylvanmats::io::json::Binder jsonBinder;
         std::ifstream is("../package.json");
         std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
@@ -198,6 +209,18 @@ TEST_CASE("test reading package.json") {
         CHECK_EQ(count, 3);
         CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 47);
         CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 45);
+                    std::cout<<"display rep graph "<<std::endl;
+   directedness dir=directedness::directed;
+   std::string_view arrows, rev_arrows = "dir=back,arrowhead=vee,";
+  for (auto&& [uid, u] : graph::views::vertexlist(jsonBinder.dagGraph)) {
+    std::cout << "  " << uid << " [label=\"" << jsonBinder.jsonContent.substr(graph::vertex_value(jsonBinder.dagGraph, u).start, graph::vertex_value(jsonBinder.dagGraph, u).end-graph::vertex_value(jsonBinder.dagGraph, u).start) << " [" << uid << "]\"]\n";
+    for (auto&& [vid, uv] : graph::views::incidence(jsonBinder.dagGraph, uid)) {
+      auto&&           v   = graph::target(jsonBinder.dagGraph, uv);
+      std::string_view arw = (dir == directedness::directed && vid < uid) ? rev_arrows : "";
+      std::cout << "   " << uid << " -> " << vid << " [" << arw << "xlabel=\"" << graph::edge_value(jsonBinder.dagGraph, uv)<<" "<<jsonBinder.jsonContent.substr(graph::vertex_value(jsonBinder.dagGraph, v).start, graph::vertex_value(jsonBinder.dagGraph, v).end-graph::vertex_value(jsonBinder.dagGraph, v).start) << " \"]\n";
+    }
+    std::cout << std::endl;
+  }
         
         
 }
