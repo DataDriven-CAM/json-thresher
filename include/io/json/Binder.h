@@ -37,7 +37,6 @@ namespace sylvanmats::io::json{
         START_OBJ,
         END_ARRAY,
         START_ARRAY,
-        VALUE_PAIR,
         PAIR_KEY,
         PAIR_VALUE,
         VALUE_NULL
@@ -87,7 +86,6 @@ namespace sylvanmats::io::json{
                                                                     {std::type_index(typeid(array)), "array"}};
         protected:
         std::string jsonContent="";
-//        std::vector<jobject> objects;
         G dagGraph;
         std::vector<sylvanmats::io::json::jobject> vertices;
         std::vector<std::tuple<graph::vertex_id_t<G>, graph::vertex_id_t<G>, int>> edges;

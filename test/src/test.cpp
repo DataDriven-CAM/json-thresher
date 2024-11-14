@@ -35,6 +35,20 @@ TEST_CASE("test path operators") {
     std::cout<<"jp "<<jp<<std::endl;
 }
 
+TEST_CASE("test graph-v2"){
+    std::vector<unsigned int> vertices;
+    for(unsigned int i=0;i<5;i++)vertices.push_back(i);
+    graph::container::compressed_graph<int, unsigned int> astGraph{{0,1,1}, {0,3,1}, {1,2,1}, {3,4,1}};//, {0,5,1}, {5,6,1}, {0,7,1}, {7,8,1}, {0,9,1}, {9,10,1}, {0,11,1}, {11,12,1}, {0,13,1}, {13,14,1}, {14,15,1}, {15,16,1}, {14,17,1}, {17,18,1}, {14,19,1}, {0,20,1}, {21,20,1}, {21,22,1}, {22,23,1}, {21,24,1}, {24,25,1}, {21,26,1}, {26,27,1}, {21,28,1}, {0,29,1}, {29,30,1}, {30,31,1}, {31,32,1}, {30,33,1}, {33,34,1}, {30,35,1}, {35,36,1}, {30,37,1}, {37,38,1}, {30,39,1}, {39,40,1}, {30,41,1}, {0,42,1}, {42,43,1}, {0,44,1}, {44,45,1}, {0,46,1}};
+    //astGraph.reserve(3);
+    astGraph.load_vertices(vertices, [&vertices](unsigned int& nm) {
+        auto uid = static_cast<graph::vertex_id_t<graph::container::compressed_graph<int, unsigned int>>>(&nm - vertices.data());
+        std::cout<<"uid "<<uid<<std::endl;
+        return graph::copyable_vertex_t< graph::vertex_id_t<graph::container::compressed_graph<int, unsigned int>>, unsigned int>{uid, nm};
+    });
+    std::cout<<"size: "<<graph::num_vertices(astGraph)<<" "<<graph::vertices(astGraph).size()<<std::endl;
+    CHECK_EQ(graph::num_vertices(astGraph), 5);
+}
+
 TEST_CASE("test periodic table json") {
     std::string jsonContent=R"({
     "elements": [
@@ -208,7 +222,7 @@ std::cout<<"bind package "<<std::endl;
         });
         CHECK_EQ(count, 3);
         CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 47);
-        CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 45);
+        CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 46);
                     std::cout<<"display rep graph "<<std::endl;
    directedness dir=directedness::directed;
    std::string_view arrows, rev_arrows = "dir=back,arrowhead=vee,";
