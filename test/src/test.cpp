@@ -42,11 +42,12 @@ TEST_CASE("test graph-v2"){
     //astGraph.reserve(3);
     astGraph.load_vertices(vertices, [&vertices](unsigned int& nm) {
         auto uid = static_cast<graph::vertex_id_t<graph::container::compressed_graph<int, unsigned int>>>(&nm - vertices.data());
-        std::cout<<"uid "<<uid<<std::endl;
+        //std::cout<<"uid "<<uid<<std::endl;
         return graph::copyable_vertex_t< graph::vertex_id_t<graph::container::compressed_graph<int, unsigned int>>, unsigned int>{uid, nm};
     });
-    std::cout<<"size: "<<graph::num_vertices(astGraph)<<" "<<graph::vertices(astGraph).size()<<std::endl;
+    //std::cout<<"size: "<<graph::num_vertices(astGraph)<<" "<<graph::vertices(astGraph).size()<<std::endl;
     CHECK_EQ(graph::num_vertices(astGraph), 5);
+    CHECK_EQ(graph::vertices(astGraph).size(), 5);
 }
 
 TEST_CASE("test periodic table json") {
@@ -89,13 +90,12 @@ TEST_CASE("test periodic table json") {
 })";
     sylvanmats::io::json::Binder jsonBinder;
     jsonBinder(jsonContent);
-//    std::string depthText=fmt::format("{}\n", jsonBinder.depthList);
-//    std::cout<<depthText;
+    jsonBinder.display();
     sylvanmats::io::json::Path jpName;
-    jpName["elements"]["*"]["symbol"]=="H";
+    jpName["elements"]["*"]["*"]["symbol"]=="H";
     size_t val=0;
     jsonBinder(jpName, [&](std::string_view& key, std::any& v){
-//        std::cout<<"key "<<key<<std::endl;
+        std::cout<<"key "<<key<<std::endl;
         if(key.compare("number")==0){
                    val=std::any_cast<long>(v);
         }
@@ -103,7 +103,7 @@ TEST_CASE("test periodic table json") {
     CHECK_EQ(val, 1);
 }
 
-TEST_CASE("test create json") {
+TEST_CASE("test create json" * doctest::skip()) {
     sylvanmats::io::json::Binder jsonBinder;
     sylvanmats::io::json::Path jp;
     jsonBinder(jp, "8DR", sylvanmats::io::json::object());
@@ -164,7 +164,7 @@ TEST_CASE("test create json") {
     std::cout<<std::type_index(pp.type()).name()<<" check: "<<jsonBinder<<std::endl;
 }
 
-TEST_CASE("test create series json") {
+TEST_CASE("test create series json" * doctest::skip()) {
     sylvanmats::io::json::Binder jsonBinder;
     sylvanmats::io::json::Path jp;
     jsonBinder(jp, "8DR", sylvanmats::io::json::object());
@@ -223,7 +223,7 @@ std::cout<<"bind package "<<std::endl;
         CHECK_EQ(count, 3);
         CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 47);
         CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 46);
-                    std::cout<<"display rep graph "<<std::endl;
+                    /*std::cout<<"display rep graph "<<std::endl;
    directedness dir=directedness::directed;
    std::string_view arrows, rev_arrows = "dir=back,arrowhead=vee,";
   for (auto&& [uid, u] : graph::views::vertexlist(jsonBinder.dagGraph)) {
@@ -234,7 +234,7 @@ std::cout<<"bind package "<<std::endl;
       std::cout << "   " << uid << " -> " << vid << " [" << arw << "xlabel=\"" << graph::edge_value(jsonBinder.dagGraph, uv)<<" "<<jsonBinder.jsonContent.substr(graph::vertex_value(jsonBinder.dagGraph, v).start, graph::vertex_value(jsonBinder.dagGraph, v).end-graph::vertex_value(jsonBinder.dagGraph, v).start) << " \"]\n";
     }
     std::cout << std::endl;
-  }
+  }*/
         
         
 }

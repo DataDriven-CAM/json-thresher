@@ -89,6 +89,7 @@ namespace sylvanmats::io::json{
         G dagGraph;
         std::vector<sylvanmats::io::json::jobject> vertices;
         std::vector<std::tuple<graph::vertex_id_t<G>, graph::vertex_id_t<G>, int>> edges;
+        std::vector<std::vector<size_t>> depthProfile;
 
         std::vector<std::pair<jobject, std::vector<jobject>>> dag;
         std::vector<int> depthList;
