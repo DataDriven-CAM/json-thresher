@@ -19,7 +19,7 @@
         "lib": "which make && make -j 3 -f Makefile all",
         "fmt": "cd cpp_modules/fmt && mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=TRuE -DCMAKE_INSTALL_PREFIX=../dist .. && make install",
         "build": "cd test && pwd && mkdir -p build/src && make -j 3 -f Makefile all",
-        "test": "cnpm build && cd test && pwd && ./test --test-suitee='main'"
+        "test": "cnpm build && cd test && pwd && ./test --test-case='test periodic table json'"
     },
     "author": "rimmartin",
     "license": "MIT"

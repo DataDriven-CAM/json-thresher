@@ -397,10 +397,12 @@ namespace sylvanmats::io::json{
                     if(currentDepth>0){
                         //std::cout<<"this depth size "<<depthProfile[currentDepth-1].size()<<std::endl;
                         size_t parentObjSize=depthProfile[currentDepth-1].back();
-                        bool hit=false;
-                        for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth-1].rbegin();!hit && it!=depthProfile[currentDepth-1].rend();it++)
+                        bool hit=parentObjSize<(*itDag).obj_size;
+                        for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth-1].rbegin();!hit && it!=depthProfile[currentDepth-1].rend();it++){
                             if(parentObjSize>=(*itDag).obj_size)parentObjSize=vertices[(*it)].obj_size;
-                            else hit=true;
+                            if(parentObjSize<(*itDag).obj_size)hit=true;
+                        }
+                        std::cout<<hit<<" Edge SO SA "<<(*itDag).obj_size<<" "<<parentObjSize<<std::endl;
                         if(hit)edges.push_back(std::make_tuple(vertices[parentObjSize].obj_size, (*itDag).obj_size, 1));
                     }
                 }
@@ -411,10 +413,12 @@ namespace sylvanmats::io::json{
                         OBECT_TYPE objType=((*itDag).obj_type==END_OBJ) ? START_OBJ : START_ARRAY;
                         size_t parentObjSize=depthProfile[currentDepth].back();
                         bool hit=false;
-                        for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth].rbegin();!hit && it!=depthProfile[currentDepth].rend();it++)
+                        for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth].rbegin();!hit && it!=depthProfile[currentDepth].rend();it++){
                             if(parentObjSize>=(*itDag).obj_size || vertices[parentObjSize].obj_type!=objType)parentObjSize=vertices[(*it)].obj_size;
-                            else hit=true;
-                        edges.push_back(std::make_tuple(vertices[parentObjSize].obj_size, (*itDag).obj_size, 1));
+                            if(parentObjSize<(*itDag).obj_size) hit=true;
+                        }
+                        std::cout<<hit<<" Edge EO EA "<<(*itDag).obj_size<<" "<<parentObjSize<<std::endl;
+                        if(hit)edges.push_back(std::make_tuple(vertices[parentObjSize].obj_size, (*itDag).obj_size, 1));
                     }
                 }
                 else if((*itDag).obj_type==PAIR_KEY || (*itDag).obj_type==PAIR_VALUE || (*itDag).obj_type==VALUE_NULL){

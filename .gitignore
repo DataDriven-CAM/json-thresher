@@ -33,4 +33,9 @@
 /nbproject/
 build
 cpp_modules/
+/documents/*.aux
+/documents/*.log
+/documents/*.out
+/documents/*.pdf
+/documents/*.gz
 test/examples/

@@ -10,6 +10,7 @@
 
 #define protected public
 #include "io/json/Binder.h"
+#include "io/tikz/GraphPublisher.h"
 
 #define FMT_HEADER_ONLY
 #include "graph/container/compressed_graph.hpp"
@@ -101,6 +102,13 @@ TEST_CASE("test periodic table json") {
         }
     });
     CHECK_EQ(val, 1);
+    sylanmats::io::tikz::GraphPublisher graphPublisher;
+    std::string&& tikzDrawing=graphPublisher(jsonBinder.dagGraph);
+    std::filesystem::path filePath="../documents/json_graph.tex";
+    std::ofstream ofs(filePath);
+    ofs<<tikzDrawing<<std::endl;
+    ofs.close();
+    
 }
 
 TEST_CASE("test create json" * doctest::skip()) {
