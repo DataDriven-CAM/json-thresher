@@ -527,8 +527,9 @@ namespace sylvanmats::io::json{
                                  [&](auto& u) { return graph::vertex_value(dagGraph, u).obj_size == 0; });
         graph::vertex_id_t<G> vid=static_cast<graph::vertex_id_t<G>>(it - begin(graph::vertices(dagGraph)));
         auto dfs      = graph::views::vertices_depth_first_search(dagGraph, vid);
-        size_t depth=0;
+        size_t depth=dfs.depth();
         std::vector<bool> branchQuality(jp.p.size(), false);
+        graph::vertex_id_t<G> sid=vid;
         for ( auto v=dfs.begin();!hit&&v!=dfs.end();++v) {
           auto&& [uid, u] = *v;
           size_t currentDepth=graph::vertex_value(dagGraph, u).depth;
@@ -541,7 +542,18 @@ namespace sylvanmats::io::json{
             if(vertices[uid].obj_type==PAIR_KEY && (jp.p[currentDepth].label.compare("*")==0 || substr_view(jsonContent, vertices[uid].start, vertices[uid].end).compare(jp.p[currentDepth].label)==0)){
                 if(jp.p[currentDepth].action==TEST)std::cout<<vid<<" test dfs: "<<uid<<" "<<graph::vertex_value(dagGraph, u).obj_size<<" "<<currentDepth<<" good: "<<good<<" "<<jp.p[currentDepth].label<<" "<<std::all_of(branchQuality.begin(), branchQuality.begin()+currentDepth, [](bool a){return a;})<<std::endl;
                 if(currentDepth==jp.p.size()-1 && jp.p[currentDepth].action==TEST){
-                    std::cout<<"TEST "<<jp.p[currentDepth].value<<std::endl;
+                    if(substr_view(jsonContent, vertices[uid].start, vertices[uid].end).compare(jp.p[currentDepth].label)==0 && vertices[uid+1].obj_type==PAIR_VALUE && substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end).compare(jp.p[currentDepth].value)==0){
+                        size_t parentObjSize=depthProfile[currentDepth].back();
+                        bool hit=parentObjSize<vertices[uid].obj_size;
+                        for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth].rbegin();!hit && it!=depthProfile[currentDepth].rend();it++){
+                            if(parentObjSize>=vertices[uid].obj_size)parentObjSize=vertices[(*it)].obj_size;
+                            if(parentObjSize<vertices[uid].obj_size)hit=true;
+                        }
+                    //graph::vertex_id_t<G> sid=u.source_id;
+                    std::cout<<sid<<" "<<uid<<" TEST "<<jp.p[currentDepth].value<<" "<<substr_view(jsonContent, vertices[uid].start, vertices[uid].end)<<" "<<substr_view(jsonContent, vertices[parentObjSize].start, vertices[parentObjSize].end)<<std::endl;
+                    std::any a{};
+                    if(apply(parentObjSize, substr_view(jsonContent, vertices[parentObjSize].start, vertices[parentObjSize].end), a))hit=true;
+                    }
                 }
                 else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==START_OBJ){
                     //std::cout<<"PAIR_KEY -> START_OBJ "<<substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end)<<std::endl;
@@ -572,6 +584,7 @@ namespace sylvanmats::io::json{
           }*/
           else if(currentDepth<jp.p.size() && jp.p[currentDepth].label.compare("*")==0)branchQuality[currentDepth]=true;
           depth=(depth<currentDepth) ? currentDepth : 0;
+          sid=uid;
         }
         if(hit)return hit;
         while(!hit && pi<jp.p.size()){

@@ -103,7 +103,7 @@ TEST_CASE("test periodic table json") {
     });
     CHECK_EQ(val, 1);
     sylanmats::io::tikz::GraphPublisher graphPublisher;
-    std::string&& tikzDrawing=graphPublisher(jsonBinder.dagGraph);
+    std::string&& tikzDrawing=graphPublisher(jsonBinder);
     std::filesystem::path filePath="../documents/json_graph.tex";
     std::ofstream ofs(filePath);
     ofs<<tikzDrawing<<std::endl;
