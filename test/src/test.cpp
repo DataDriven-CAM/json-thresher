@@ -116,12 +116,12 @@ TEST_CASE("test create json" * doctest::skip()) {
     sylvanmats::io::json::Path jp;
     jsonBinder(jp, "8DR", sylvanmats::io::json::object());
     CHECK_EQ(jsonBinder.countObjects(), 2);
-//    std::cout<<jsonBinder<<std::endl;
+    std::cout<<jsonBinder<<std::endl;
     jp["8DR"];
     jsonBinder(jp, "start", 100);
     CHECK_EQ(jsonBinder.countObjects(), 2);
 //    jsonBinder.display();
-//    std::cout<<jsonBinder<<std::endl;
+    std::cout<<jsonBinder<<std::endl;
 //    jsonBinder(jp, "end", 200);
 //    std::cout<<jsonBinder<<std::endl;
     sylvanmats::io::json::Path jp2;
@@ -131,7 +131,7 @@ TEST_CASE("test create json" * doctest::skip()) {
 //    std::cout<<jsonBinder<<std::endl;
     jp2["CGU"];
     jsonBinder(jp2, "start", 300);
-//    std::cout<<"check: "<<jsonBinder<<std::endl;
+    std::cout<<"check: "<<jsonBinder<<std::endl;
     jsonBinder(jp2, "end", 400);
     jsonBinder(jp, "end", 200);
     sylvanmats::io::json::Path jp3;
@@ -148,7 +148,7 @@ TEST_CASE("test create json" * doctest::skip()) {
     jp4["001"];
     jsonBinder(jp4, "start", 51);
 //    jsonBinder.display();
-//    std::cout<<"check: "<<jsonBinder<<std::endl;
+    std::cout<<"check: "<<jsonBinder<<std::endl;
     jsonBinder(jp4, "end", 99);
 ////    //jsonBinder.display();
     std::cout<<jsonBinder<<std::endl;
@@ -254,8 +254,8 @@ TEST_CASE("test reading mimes db.json") {
         jsonBinder(jsonContent);
 //            std::string depthText=fmt::format("{}\n", jsonBinder.depthList);
 //            std::cout<<depthText;
-            CHECK_EQ(jsonBinder.dag.size(), 15140);
-            CHECK_EQ(jsonBinder.depthList.size(), 15140);
+            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 15140);
+            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 15139);
 //            std::ofstream ofs("check.txt");
 //            ofs<<depthText;
 //            ofs.close();
