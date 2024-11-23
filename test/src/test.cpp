@@ -172,7 +172,7 @@ TEST_CASE("test create json" * doctest::skip()) {
     std::cout<<std::type_index(pp.type()).name()<<" check: "<<jsonBinder<<std::endl;
 }
 
-TEST_CASE("test create series json" * doctest::skip()) {
+TEST_CASE("test create series json") {
     sylvanmats::io::json::Binder jsonBinder;
     sylvanmats::io::json::Path jp;
     jsonBinder(jp, "8DR", sylvanmats::io::json::object());

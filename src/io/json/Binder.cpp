@@ -127,9 +127,11 @@ namespace sylvanmats::io::json{
             notfinal=finialize;
             }while(!notfinal);
             jsonContent.insert(insertionOffset, insertableBlock);
-            std::cout<<"depthProfile size: "<<depthProfile.size()<<std::endl;
-            //dagGraph.clear();
-            std::cout<<"depthProfile clear size: "<<depthProfile.size()<<std::endl;
+            size_t count=0;
+            //dagGraph.resize_vertices(count);
+            //dagGraph.resize_edges(count);
+            dagGraph=G{};
+            depthProfile.clear();
             vertices.clear();
             edges.clear();
             depthProfile.clear();
@@ -138,7 +140,8 @@ namespace sylvanmats::io::json{
             bind(0);
             return true;
         });
-    };
+    }
+
     //remove
     bool Binder::operator ()(Path& jp, std::string removalKey){
         bool ret=false;
@@ -149,6 +152,11 @@ namespace sylvanmats::io::json{
                     std::string::size_type offset=dag[dag[o.obj_size+1].second.back().obj_size+1].first.end+1;
                     jsonContent.erase(start, offset-start);
 //                    std::cout<<jsonContent<<std::endl;
+                    size_t count=0;
+                    dagGraph.resize_vertices(count);
+                    dagGraph.resize_edges(count);
+                    vertices.clear();
+                    edges.clear();
                     dag.clear();
                     depthList.clear();
                     bind(0);
@@ -402,7 +410,7 @@ namespace sylvanmats::io::json{
                             if(parentObjSize>=(*itDag).obj_size)parentObjSize=vertices[(*it)].obj_size;
                             if(parentObjSize<(*itDag).obj_size)hit=true;
                         }
-                        std::cout<<hit<<" Edge SO SA "<<(*itDag).obj_size<<" "<<parentObjSize<<std::endl;
+                        //std::cout<<hit<<" Edge SO SA "<<(*itDag).obj_size<<" "<<parentObjSize<<std::endl;
                         if(hit)edges.push_back(std::make_tuple(vertices[parentObjSize].obj_size, (*itDag).obj_size, 1));
                     }
                 }
@@ -417,7 +425,7 @@ namespace sylvanmats::io::json{
                             if(parentObjSize>=(*itDag).obj_size || vertices[parentObjSize].obj_type!=objType)parentObjSize=vertices[(*it)].obj_size;
                             if(parentObjSize<(*itDag).obj_size) hit=true;
                         }
-                        std::cout<<hit<<" Edge EO EA "<<(*itDag).obj_size<<" "<<parentObjSize<<std::endl;
+                        //std::cout<<hit<<" Edge EO EA "<<(*itDag).obj_size<<" "<<parentObjSize<<std::endl;
                         if(hit)edges.push_back(std::make_tuple(vertices[parentObjSize].obj_size, (*itDag).obj_size, 1));
                     }
                 }
@@ -483,7 +491,7 @@ namespace sylvanmats::io::json{
             }
             using value = std::ranges::range_value_t<decltype(edges)>;
             graph::vertex_id_t<G> N = static_cast<graph::vertex_id_t<G>>(size(graph::vertices(dagGraph)));
-            using edge_desc  = graph::edge_descriptor<graph::vertex_id_t<G>, true, void, int>;
+            using edge_desc  = graph::edge_info<graph::vertex_id_t<G>, true, void, int>;
             dagGraph.reserve_vertices(vertices.size());
             dagGraph.reserve_edges(edges.size());
             dagGraph.load_edges(edges, [](const value& val) -> edge_desc {
@@ -492,6 +500,7 @@ namespace sylvanmats::io::json{
               }, N);
             dagGraph.load_vertices(vertices, [&](sylvanmats::io::json::jobject& nm) {
                 auto uid = static_cast<graph::vertex_id_t<G>>(&nm - vertices.data());
+//                std::cout<<"vertex "<<uid<<std::endl;
                 return graph::copyable_vertex_t<graph::vertex_id_t<G>, sylvanmats::io::json::jobject>{uid, nm};
               });
             
@@ -550,15 +559,17 @@ namespace sylvanmats::io::json{
                             if(parentObjSize<vertices[uid].obj_size)hit=true;
                         }
                     //graph::vertex_id_t<G> sid=u.source_id;
-                    std::cout<<sid<<" "<<uid<<" TEST "<<jp.p[currentDepth].value<<" "<<substr_view(jsonContent, vertices[uid].start, vertices[uid].end)<<" "<<substr_view(jsonContent, vertices[parentObjSize].start, vertices[parentObjSize].end)<<std::endl;
+                    //std::cout<<sid<<" "<<uid<<" TEST "<<jp.p[currentDepth].value<<" "<<substr_view(jsonContent, vertices[uid].start, vertices[uid].end)<<" "<<substr_view(jsonContent, vertices[parentObjSize].start, vertices[parentObjSize].end)<<std::endl;
                     std::any a{};
                     if(apply(parentObjSize, substr_view(jsonContent, vertices[parentObjSize].start, vertices[parentObjSize].end), a))hit=true;
                     }
                 }
                 else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==START_OBJ){
-                    //std::cout<<"PAIR_KEY -> START_OBJ "<<substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end)<<std::endl;
+//                    std::cout<<"PAIR_KEY -> START_OBJ "<<substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end)<<std::endl;
                     std::any a{};
                     if(apply(vertices[uid+1].obj_size, substr_view(jsonContent, vertices[uid].start, vertices[uid].end), a))hit=true;
+                    //std::cout<<"hit "<<hit<<std::endl;
+                    if(hit)break;
                 }
                 else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==PAIR_VALUE)
                     if(apply(vertices[uid].obj_size, substr_view(jsonContent, vertices[uid].start, vertices[uid].end), vertices[uid+1].value_index))hit=true;
