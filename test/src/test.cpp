@@ -33,7 +33,6 @@ TEST_CASE("test path operators") {
     std::stringstream ss;
     ss<<jp;
     CHECK_EQ(ss.str(), "/elements/*/symbol == H");
-    std::cout<<"jp "<<jp<<std::endl;
 }
 
 TEST_CASE("test graph-v2"){
@@ -49,6 +48,33 @@ TEST_CASE("test graph-v2"){
     //std::cout<<"size: "<<graph::num_vertices(astGraph)<<" "<<graph::vertices(astGraph).size()<<std::endl;
     CHECK_EQ(graph::num_vertices(astGraph), 5);
     CHECK_EQ(graph::vertices(astGraph).size(), 5);
+}
+
+TEST_CASE("test tiny periodic table json") {
+    std::string jsonContent=R"({
+    "elements": [
+        {
+            "number": 1,
+            "symbol": "H"
+        },
+        {
+            "number": 6,
+            "symbol": "C"
+        }
+    ]
+})";
+    sylvanmats::io::json::Binder jsonBinder;
+    jsonBinder(jsonContent);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 17);
+    CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 17);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 16);
+    //jsonBinder.display();
+    sylanmats::io::tikz::GraphPublisher graphPublisher;
+    std::string&& tikzDrawing=graphPublisher(jsonBinder);
+    std::filesystem::path filePath="../documents/json_graph.tex";
+    std::ofstream ofs(filePath);
+    ofs<<tikzDrawing<<std::endl;
+    ofs.close();
 }
 
 TEST_CASE("test periodic table json") {
@@ -86,22 +112,72 @@ TEST_CASE("test periodic table json") {
                 1312
             ],
             "cpk-hex": "ffffff"
+        },
+        {
+            "name": "Carbon",
+            "appearance": null,
+            "atomic_mass": 12.011,
+            "boil": null,
+            "category": "polyatomic nonmetal",
+            "color": null,
+            "density": 1.821,
+            "discovered_by": "Ancient Egypt",
+            "melt": null,
+            "molar_heat": 8.517,
+            "named_by": null,
+            "number": 6,
+            "period": 2,
+            "phase": "Solid",
+            "source": "https://en.wikipedia.org/wiki/Carbon",
+            "spectral_img": "https://en.wikipedia.org/wiki/File:Carbon_Spectra.jpg",
+            "summary": "Carbon (from Latin:carbo \"coal\") is a chemical element with symbol C and atomic number 6. On the periodic table, it is the first (row 2) of six elements in column (group) 14, which have in common the composition of their outer electron shell. It is nonmetallic and tetravalent—making four electrons available to form covalent chemical bonds.",
+            "symbol": "C",
+            "xpos": 14,
+            "ypos": 2,
+            "shells": [
+                2,
+                4
+            ],
+            "electron_configuration": "1s2 2s2 2p2",
+            "electron_configuration_semantic": "[He] 2s2 2p2",
+            "electron_affinity": 121.7763,
+            "electronegativity_pauling": 2.55,
+            "ionization_energies": [
+                1086.5,
+                2352.6,
+                4620.5,
+                6222.7,
+                37831,
+                47277
+            ],
+            "cpk-hex": "909090"
         }
     ]
 })";
     sylvanmats::io::json::Binder jsonBinder;
     jsonBinder(jsonContent);
-    jsonBinder.display();
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 131);
+    CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 131);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 130);
+    //jsonBinder.display();
     sylvanmats::io::json::Path jpName;
     jpName["elements"]["*"]["*"]["symbol"]=="H";
     size_t val=0;
     jsonBinder(jpName, [&](std::string_view& key, std::any& v){
-        std::cout<<"key "<<key<<std::endl;
         if(key.compare("number")==0){
                    val=std::any_cast<long>(v);
         }
     });
     CHECK_EQ(val, 1);
+    sylvanmats::io::json::Path jpNameC;
+    jpNameC["elements"]["*"]["*"]["symbol"]=="C";
+    val=0;
+    jsonBinder(jpNameC, [&](std::string_view& key, std::any& v){
+        if(key.compare("number")==0){
+                   val=std::any_cast<long>(v);
+        }
+    });
+    CHECK_EQ(val, 6);
     sylanmats::io::tikz::GraphPublisher graphPublisher;
     std::string&& tikzDrawing=graphPublisher(jsonBinder);
     std::filesystem::path filePath="../documents/json_graph.tex";
@@ -185,7 +261,6 @@ TEST_CASE("test create series json") {
         }
         return std::make_tuple(true, "end", 200);
     });
-    std::cout<<jsonBinder<<std::endl;
     sylvanmats::io::json::Path jp2;
     jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
     jp2["CGU"];
@@ -197,12 +272,31 @@ TEST_CASE("test create series json") {
         }
         return std::make_tuple(true, "end", 400);
     });
-    std::cout<<jsonBinder<<std::endl;
     CHECK_EQ(jsonBinder.countObjects(), 3);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 16);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 15);
+    //jsonBinder.display();
+    sylvanmats::io::json::Path jpName;
+    jpName["8DR"]["*"]["start"]==100l;
+    size_t val=0;
+    jsonBinder(jpName, [&](std::string_view& key, std::any& v){
+        if(key.compare("end")==0){
+                   val=std::any_cast<long>(v);
+        }
+    });
+    CHECK_EQ(val, 200);
+    sylvanmats::io::json::Path jpName2;
+    jpName2["CGU"]["*"]["start"]==300l;
+    val=0;
+    jsonBinder(jpName2, [&](std::string_view& key, std::any& v){
+        if(key.compare("end")==0){
+                   val=std::any_cast<long>(v);
+        }
+    });
+    CHECK_EQ(val, 400);
 }
 
 TEST_CASE("test reading package.json") {
-std::cout<<"bind package "<<std::endl;
     sylvanmats::io::json::Binder jsonBinder;
         std::ifstream is("../package.json");
         std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
@@ -264,7 +358,7 @@ TEST_CASE("test reading mimes db.json") {
 //        std::cout<<"jp "<<jp<<std::endl;
         std::vector<std::string> mimeNames;
         jsonBinder(jp, [&](std::string_view& key, std::any& v){
-//            std::cout<<key<<std::endl;
+//            std::cout<<"key "<<key<<std::endl;
             mimeNames.push_back(std::string(key.begin(), key.end()));
         });
         for(std::vector<std::string>::iterator it=mimeNames.begin();it!=mimeNames.end();++it){

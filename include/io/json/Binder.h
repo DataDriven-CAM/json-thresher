@@ -52,9 +52,6 @@ namespace sylvanmats::io::json{
         size_t depth=0;
     };
 
-    struct object{};
-    struct array{};
-    
     using G = graph::container::compressed_graph<int, sylvanmats::io::json::jobject>;
 
     class Binder{
@@ -133,6 +130,13 @@ namespace sylvanmats::io::json{
         void bind(std::string::size_type offset, size_t depth=0);
         
         bool isNull(std::span<char>& s, std::span<char>::iterator& it);
+
+        inline bool test(std::string_view pairValue, std::any& value){
+            if(type_names[std::type_index(value.type())].compare("long")==0)
+                return pairValue.compare(std::to_string(std::any_cast<long>(value)))==0;
+            else
+                return pairValue.compare(std::any_cast<std::string_view>(value))==0;
+        };
         
         bool match(Path& jp, bool last, std::function<bool(size_t obj_size, std::string_view key, std::any& v)> apply);
         

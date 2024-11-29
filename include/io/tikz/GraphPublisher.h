@@ -18,7 +18,6 @@ namespace sylanmats::io::tikz{
         GraphPublisher(){
             std::string templateLocation=(getenv("JSONTHRESHER_DB_LOCATION")!=nullptr) ? std::string(getenv("JSONTHRESHER_DB_LOCATION"))+"/templates/tikz": "./templates/tikz";
             std::filesystem::path path=templateLocation+"/tikz.txt";
-            std::cout<<" "<<path.string()<<std::endl;
             std::ifstream file(path);
             graphTemplate=std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         };

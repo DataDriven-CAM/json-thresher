@@ -4,6 +4,10 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <unordered_map>
+#include <any>
+#include <typeindex>
+#include <iostream>
 #include <memory>
 
 namespace sylvanmats::io::json{
@@ -21,18 +25,32 @@ namespace sylvanmats::io::json{
     
     struct element{
         using size_type =  std::size_t;
-        std::string_view label;
+        std::string label;
         ACTION action = NOP;
-        std::string_view value;
+        std::any value{};
     };
+    
+    struct object{};
+    struct array{};
     
     struct Root;
     
     class Path{
         friend class Binder;
     protected:
+        std::unordered_map<std::type_index, std::string> type_names{{std::type_index(typeid(const char*)), "const char*"},
+                                                                    {std::type_index(typeid(std::string_view)), "std::string_view"},
+                                                                    {std::type_index(typeid(int)), "int"},
+                                                                    {std::type_index(typeid(unsigned int)), "unsigned int"},
+                                                                    {std::type_index(typeid(long)), "long"},
+                                                                    {std::type_index(typeid(unsigned long)), "unsigned long"},
+                                                                    {std::type_index(typeid(size_t)), "size_t"},
+                                                                    {std::type_index(typeid(double)), "double"},
+                                                                    {std::type_index(typeid(object)), "object"},
+                                                                    {std::type_index(typeid(array)), "array"}};
         std::vector<element> p;
         std::vector<std::string> s;
+        std::vector<std::string> ts;
         std::allocator<element> allocations;
         std::string::size_type n=0;
         std::string::size_type reserveSize=0;
@@ -114,7 +132,10 @@ namespace sylvanmats::io::json{
             std::string ret{};
             for(auto e : p){
                 if(e.action==TEST){
-                    ret.append("/").append(e.label).append(" == ").append(e.value);
+                    if(type_names[std::type_index(e.value.type())].compare("long")==0)
+                        ret.append("/").append(e.label).append(" == ").append(std::to_string(std::any_cast<long>(e.value)));
+                    else
+                        ret.append("/").append(e.label).append(" == ").append(std::any_cast<std::string_view>(e.value));
                 }
                 else{
                     ret.append("/").append(e.label);
@@ -134,19 +155,19 @@ namespace sylvanmats::io::json{
         
         Path& operator=(const char* c){
             //if(!this->p.empty())this->p.clear();
-            this->p.push_back({.label=std::string_view(c), .action=NOP});
+            this->p.push_back({.label=std::string(c), .action=NOP});
             return *this;
         }
         
         const Path& operator=(const std::string& s){
             //if(!this->p.empty())this->p.clear();
-            this->p.push_back({.label=std::string_view(s), .action=NOP});
+            this->p.push_back({.label=std::string(s), .action=NOP});
             return *this;
         }
         
         const Path& operator=(const std::string_view& sv){
             //if(!this->p.empty())this->p.clear();
-            this->p.push_back({.label=std::string_view(sv), .action=NOP});
+            this->p.push_back({.label=std::string(sv.begin(), sv.end()), .action=NOP});
             return *this;
         }
         
@@ -157,9 +178,15 @@ namespace sylvanmats::io::json{
         }
         
         Path& operator==(std::string s){
-            this->s.emplace_back(s);
+            this->ts.push_back(s);
             this->p.back().action=TEST;
-            this->p.back().value=std::string_view(this->s.back());
+            this->p.back().value=std::any_cast<std::string_view>(std::string_view(this->ts.back()));
+            return *this;
+        }
+        
+        Path& operator==(long s){
+            this->p.back().action=TEST;
+            this->p.back().value=std::any_cast<long>(s);
             return *this;
         }
         
@@ -167,13 +194,11 @@ namespace sylvanmats::io::json{
 //            std::string s(c);
             size_t offset=s.find("=");
             if(s.at(0)=='@' && offset!=std::string::npos){
-                this->s.emplace_back(std::string(s.substr(1, offset-1)));
-                this->s.emplace_back(std::string(s.substr(offset+1)));
-                this->p.push_back({.label=std::string_view(this->s[this->s.size()-2]), .action=TEST, .value=std::string_view(this->s.back())});
+                this->ts.emplace_back(std::string(s.substr(offset+1)));
+                this->p.push_back({.label=std::string(s.substr(1, offset-1)), .action=TEST, .value=std::any_cast<std::string_view>(this->ts.back())});
             }
             else{
-                this->s.emplace_back(s);
-                this->p.push_back({.label=std::string_view(this->s.back()), .action=NOP});            
+                this->p.push_back({.label=s, .action=NOP});            
             }
             return *this;
         }
@@ -186,19 +211,19 @@ namespace sylvanmats::io::json{
         
         Path& operator[](size_t i){
             std::string s="["+std::to_string(i)+"]";
-            this->p.push_back({.label=std::string_view(s), .action=NOP});
+            this->p.push_back({.label=s, .action=NOP});
             return *this;
         }
         
         Path& operator !(){
             std::string s="/";
-            this->p.push_back({.label=std::string_view(s), .action=NOP});
+            this->p.push_back({.label=s, .action=NOP});
             return *this;
         }
 
         friend Path& operator !(const Path& p){
             std::string s="/";
-            ((std::vector<element>)p.p).push_back({.label=std::string_view(s), .action=NOP});
+            ((std::vector<element>)p.p).push_back({.label=s, .action=NOP});
             return (Path&)p;
         }
 
@@ -209,31 +234,33 @@ namespace sylvanmats::io::json{
         }
 
         friend Path& operator/(Path& p, const char* c){
-            p.s.push_back(std::string(c));
-//            std::cout<<"in this divide / "<<p.p.size()<<" "<<p.s.back()<<std::endl;
-            p.p.push_back({.label=std::string_view(p.s.back()), .action=NOP});
+//            std::cout<<"in this divide / "<<p.p.size()<<" "<<std::string(c)<<std::endl;
+            p.p.push_back({.label=std::string(c), .action=NOP});
             return p;
         }
 
         friend Path& operator/(const Path& p, const std::string_view& sv){
-            ((std::vector<element>)p.p).push_back({.label=sv, .action=NOP});
+            ((std::vector<element>)p.p).push_back({.label=std::string(sv.begin(), sv.end()), .action=NOP});
             return (Path&)p;
         }
 
         friend Path& operator/=(const Path& p, const char* s){
-            ((Path&)p).p.push_back({.label=std::string_view(s), .action=NOP});
+            ((Path&)p).p.push_back({.label=std::string(s), .action=NOP});
             return (Path&)p;
         }
 
         friend Path& operator/=(const Path& p, const std::string_view& sv){
-            ((std::vector<element>)p.p).push_back({.label=sv, .action=NOP});
+            ((std::vector<element>)p.p).push_back({.label=std::string(sv.begin(), sv.end()), .action=NOP});
             return (Path&)p;
         }
 
-        friend std::ostream& operator<<(std::ostream& s, Path& p) {
-        for(auto p : p.p){
+        friend std::ostream& operator<<(std::ostream& s, Path& tp) {
+        for(auto p : tp.p){
             if(p.action==TEST){
-                s <<"/"<< p.label<<" == "<<p.value;
+                if(p.value.has_value() && tp.type_names[std::type_index(p.value.type())].compare("long")==0)
+                    s <<"/"<< p.label<<" == "<<std::any_cast<long>(p.value);
+                else
+                    s <<"/"<< p.label<<" == "<<std::any_cast<std::string_view>(p.value);
             }
             else
                 s <<"/"<< p.label;
