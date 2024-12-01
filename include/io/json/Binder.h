@@ -129,6 +129,56 @@ namespace sylvanmats::io::json{
         void shortenDAG(std::string::size_type insertionOffset, std::string::size_type offset);
         void bind(std::string::size_type offset, size_t depth=0);
         
+        size_t bisect(size_t currentDepth, size_t target, bool& hit){
+            std::vector<size_t>& depthVector=depthProfile[currentDepth];
+            int low = 0;
+            int high = depthVector.size() - 1;
+
+            if (target < depthVector[low]) {
+                return 0; // Target is below the range of depthVector
+            }
+
+            while (low <= high) {
+                int mid = low + (high - low) / 2;
+
+                if (depthVector[mid] < target) {
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+
+            // If the target is smaller than all elements, return -1
+            if(high >= 0) hit=true;
+            return high >= 0 ? depthVector[high] : 0; 
+        };
+        
+        size_t bisect(size_t currentDepth, OBECT_TYPE objType, size_t target, bool& hit){
+            std::vector<size_t>& depthVector=depthProfile[currentDepth];
+            int low = 0;
+            int high = depthVector.size() - 1;
+
+            if (target < depthVector[low]) {
+                return 0; // Target is below the range of depthVector
+            }
+
+            while (low <= high) {
+                int mid = low + (high - low) / 2;
+
+                if (depthVector[mid] >= target) {
+                    high = mid - 1;
+                    while(high>0 && vertices[depthVector[high]].obj_type==objType)high--;
+                    //if(low>high)
+                } else {
+                    low = mid + 1;
+                }
+            }
+
+            // If the target is smaller than all elements, return -1
+            if(high >= 0) hit=true;
+            return high >= 0 ? depthVector[high] : 0; 
+        };
+
         bool isNull(std::span<char>& s, std::span<char>::iterator& it);
 
         inline bool test(std::string_view pairValue, std::any& value){

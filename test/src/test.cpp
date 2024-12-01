@@ -7,6 +7,7 @@
 #include <fstream>
 #include <ranges>
 #include <deque>
+#include <chrono>
 
 #define protected public
 #include "io/json/Binder.h"
@@ -378,6 +379,38 @@ TEST_CASE("test reading mimes db.json") {
 //            std::cout<<key<<" "<<std::any_cast<const char*>(v)<<std::endl;
 //        });
         is.close();
+}
+
+TEST_CASE("test component json" * doctest::skip()) {
+    auto startTime = std::chrono::high_resolution_clock::now();
+    sylvanmats::io::json::Binder jsonBinder;
+    std::ifstream is("/home/roger/sylvanmats/cifio/db/components.json");
+    std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
+    jsonBinder(jsonContent);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 236364);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph),  236363);
+    auto intermediateTime = std::chrono::high_resolution_clock::now();
+    sylvanmats::io::json::Path jpName;
+    jpName["CGU"];
+    size_t start=0;
+    size_t end=0;
+    size_t count=0;
+        jsonBinder(jpName, [&start, &end, &count](std::string_view& key, std::any& v){
+            if(key.compare("start")==0){
+                start=std::any_cast<long>(v);
+            }
+            else if(key.compare("end")==0){
+                end=std::any_cast<long>(v);
+            }
+            count++;
+        });
+    CHECK_EQ(count, 2);
+    CHECK_EQ(start, 133510327);
+    CHECK_EQ(end, 133516744);
+    auto endTime = std::chrono::high_resolution_clock::now();
+    //std::cout << "match time: " << std::chrono::duration_cast<std::chrono::nanoseconds>(endTime-intermediateTime).count()*1.0e-9 << "s\n";
+    //std::cout << "elapsed time: " << std::chrono::duration_cast<std::chrono::nanoseconds>(endTime-startTime).count()*1.0e-9 << "s\n";
+
 }
 
 }
