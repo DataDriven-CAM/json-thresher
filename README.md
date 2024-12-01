@@ -1,10 +1,11 @@
 # json-thresher
-C++ json binder
+C++ json binder: designed for the language advantages and getting directly to what a user may want out of the json. Getting faster. Path matching is now ~0.002 secs in large object arrays(~2.44Mb).
+The initial binding step is getting fast; only a dag edge sort is taking 5 secs on the ~2.44Mb json. Hope to eliminate as I learn more how to setup a [graph-v2](https://github.com/stdgraph/graph-v2.git) container graph.
 
 ## To build and test
 
 Note: currently working on a new package manager to use on this package.  Other managers should still 
-work(as far as they do) as https://github.com/DataDriven-CAM/cnpm.git is based on the package.json npm format.
+work(as far as they do) as [cnpm](https://github.com/DataDriven-CAM/cnpm.git) is based on the package.json npm format.
 
 ### cnpm building
 
@@ -59,11 +60,20 @@ generates a json:
 ### Finding an elements properties
 ```
     sylvanmats::io::json::Path jpSymbol;
-    jpSymbol["elements"]["*"]["symbol"]=="C";
+    jpSymbol["elements"]["*"]["*"]["symbol"]=="C";
 
 ```
 matches any object in the elements array where symbol is C; and from periodic table [Periodic-Table-JSON](https://github.com/Bowserinator/Periodic-Table-JSON.git) 
 and traverses all value pairs for the element by ```jsonBinder(jpSymbol, [&](std::string_view& key, std::any& v){});```.  
+
+For traversing an object with a child value pair "start": 100, 
+```
+    sylvanmats::io::json::Path jpName;
+    jpName["8DR"]["*"]["start"]==100l;
+```
+
+Planning to add getting numerical arrays quickly in to usable c++ arrays. 
+Planning faster creation portion of the API using format.
 
 ## Contact
 
