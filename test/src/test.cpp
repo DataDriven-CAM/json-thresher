@@ -13,7 +13,6 @@
 #include "io/json/Binder.h"
 #include "io/tikz/GraphPublisher.h"
 
-#define FMT_HEADER_ONLY
 #include "graph/container/compressed_graph.hpp"
 #include "graph/views/incidence.hpp"
 #include "graph/views/vertexlist.hpp"

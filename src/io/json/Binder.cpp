@@ -6,6 +6,7 @@
 #include <chrono>
 #include <typeinfo>
 #include <ranges>
+#include <format>
 
 #include "io/json/Binder.h"
 
@@ -203,8 +204,8 @@ namespace sylvanmats::io::json{
         //std::cout<<depthText;
         for(std::vector<std::vector<size_t>>::iterator it=depthProfile.begin();it!=depthProfile.end();it++){
             std::cout<<(std::distance(depthProfile.begin(), it))<<std::endl;
-            std::string depthProfile=fmt::format("{}\n", (*it));
-            std::cout<<"\t"<<depthProfile;
+            //std::string depthProfile=std::format("{}\n", (*it));
+            //std::cout<<"\t"<<depthProfile;
         }
     }
     
