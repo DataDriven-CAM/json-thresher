@@ -5,6 +5,7 @@
 #include <vector>
 #include <chrono>
 #include <typeinfo>
+#include <ranges>
 
 #include "io/json/Binder.h"
 
@@ -407,14 +408,8 @@ namespace sylvanmats::io::json{
                     if(currentDepth>0){
                         //std::cout<<"this depth size "<<depthProfile[currentDepth-1].size()<<std::endl;
                         OBECT_TYPE objType=((*itDag).obj_type==START_OBJ) ? START_OBJ : START_ARRAY;
-                        //size_t parentObjSize=depthProfile[currentDepth-1].back();
-                        bool hit=false;//parentObjSize<(*itDag).obj_size;
+                        bool hit=false;
                         size_t parentObjSize=bisect(currentDepth-1, (*itDag).obj_size, hit);
-                        /*for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth-1].rbegin();!hit && it!=depthProfile[currentDepth-1].rend();it++){
-                            if(parentObjSize>=(*itDag).obj_size)parentObjSize=vertices[(*it)].obj_size;
-                            if(parentObjSize<(*itDag).obj_size)hit=true;
-                        }*/
-                        //std::cout<<hit<<" Edge SO SA "<<(*itDag).obj_size<<" "<<parentObjSize<<std::endl;
                         if(hit)edges.push_back(std::make_tuple(vertices[parentObjSize].obj_size, (*itDag).obj_size, 1));
                     }
                 }
@@ -423,14 +418,8 @@ namespace sylvanmats::io::json{
 //                        std::cout<<"END_OBJ "<<(*itDag).obj_size<<" "<<currentDepth<<" "<<depthProfile.size()<<std::endl;
                     if(currentDepth>=0){
                         OBECT_TYPE objType=((*itDag).obj_type==END_OBJ) ? END_OBJ : END_ARRAY;
-                        //size_t parentObjSize=depthProfile[currentDepth].back();
                         bool hit=false;
                         size_t parentObjSize=bisect(currentDepth, objType, (*itDag).obj_size, hit);
-                        //for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth].rbegin();!hit && it!=depthProfile[currentDepth].rend();it++){
-                        //    if(parentObjSize>=(*itDag).obj_size || vertices[parentObjSize].obj_type!=objType)parentObjSize=vertices[(*it)].obj_size;
-                        //    if(parentObjSize<(*itDag).obj_size) hit=true;
-                        //}
-                        //std::cout<<hit<<" Edge EO EA "<<(*itDag).obj_size<<" "<<parentObjSize<<std::endl;
                         if(hit)edges.push_back(std::make_tuple(vertices[parentObjSize].obj_size, (*itDag).obj_size, 1));
                     }
                 }
@@ -439,15 +428,8 @@ namespace sylvanmats::io::json{
                 }
                 else if((*itDag).obj_type==PAIR_KEY){
                     if(currentDepth>0){
-                        //size_t parentObjSize=depthProfile[currentDepth-1].back();
                         bool hit=false;
                         size_t parentObjSize=bisect(currentDepth-1, (*itDag).obj_size, hit);
-                        //size_t offset=1;
-                        //for(std::vector<size_t>::reverse_iterator it=depthProfile[currentDepth-1].rbegin();!hit && it!=depthProfile[currentDepth-1].rend();it++)
-                        //if(parentObjSize>=(*itDag).obj_size)parentObjSize=vertices[(*it)].obj_size;
-                        //else hit=true;
-//                        std::cout<<"VP "<<hit<<" "<<offset<<" "<<(currentDepth-offset)<<" "<<parentObjSize<<" "<<vertices[parentObjSize].obj_size<<" "<<(*itDag).obj_size<<std::endl;
-                        //if(hit)
                         if(hit)edges.push_back(std::make_tuple(vertices[parentObjSize].obj_size, (*itDag).obj_size, 1));
                     }
                 }
@@ -512,12 +494,10 @@ namespace sylvanmats::io::json{
         graph::vertex_id_t<G> vid=static_cast<graph::vertex_id_t<G>>(it - begin(graph::vertices(dagGraph)));
         auto dfs      = graph::views::vertices_depth_first_search(dagGraph, vid);
         size_t depth=dfs.depth();
-        std::vector<bool> branchQuality(jp.p.size(), false);
+        //std::vector<bool> branchQuality(jp.p.size(), false);
         size_t count=0;
         size_t count2=0;
          for (auto&& [uid, u] : dfs) {
-        //for ( auto v=dfs.begin();!hit&&v!=dfs.end();++v) {
-          //auto&& [uid, u] = *v;
           size_t currentDepth=graph::vertex_value(dagGraph, u).depth;
           count++;
           if(currentDepth==0)continue;

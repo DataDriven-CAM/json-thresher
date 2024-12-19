@@ -6,11 +6,11 @@
     "repository": "https://rimmartin@github.com/DataDriven-CAM/json-thresher.git",
     "private": null,
     "dependencies": {
-      "fmt": "fmtlib/fmt",
       "graph-v2": "stdgraph/graph-v2"
     },
     "devDependencies": {
         "doctest": "onqtam/doctest",
+        "fmt": "fmtlib/fmt",
         "mime-db": "1.42.0",
         "json-graph-specification": "jsongraph/json-graph-specification"
     },

@@ -317,13 +317,13 @@ TEST_CASE("test reading package.json") {
                 CHECK_EQ(key, "doctest");
                 CHECK_EQ(std::any_cast<std::string_view>(v), "onqtam/doctest");
             }
-            else if(count==2){
+            else if(count==3){
                 CHECK_EQ(key, "json-graph-specification");
                 CHECK_EQ(std::any_cast<std::string_view>(v), "jsongraph/json-graph-specification");
             }
             count++;
         });
-        CHECK_EQ(count, 3);
+        CHECK_EQ(count, 4);
         CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 47);
         CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 46);
                     /*std::cout<<"display rep graph "<<std::endl;
@@ -347,8 +347,6 @@ TEST_CASE("test reading mimes db.json") {
         std::ifstream is("../cpp_modules/mime-db/db.json");
         std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
         jsonBinder(jsonContent);
-//            std::string depthText=fmt::format("{}\n", jsonBinder.depthList);
-//            std::cout<<depthText;
             CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 15140);
             CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 15139);
 //            std::ofstream ofs("check.txt");

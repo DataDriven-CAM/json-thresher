@@ -9,6 +9,10 @@
 #include "graph/views/depth_first_search.hpp"
 #include "graph/views/vertexlist.hpp"
 
+#define FMT_HEADER_ONLY
+#include "fmt/format.h"
+#include "fmt/ranges.h"
+
 namespace sylanmats::io::tikz{
 
     class GraphPublisher{
