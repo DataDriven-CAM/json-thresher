@@ -39,3 +39,4 @@ cpp_modules/
 /documents/*.pdf
 /documents/*.gz
 test/examples/
+test/test

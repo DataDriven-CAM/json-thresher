@@ -22,7 +22,7 @@ namespace sylvanmats::io::json{
     };
 }
 
-sylvanmats::io::json::Path operator"" _jp(const char* c, size_t s){
+sylvanmats::io::json::Path operator""_jp(const char* c, size_t s){
     return sylvanmats::io::json::Path(c);
 }
 

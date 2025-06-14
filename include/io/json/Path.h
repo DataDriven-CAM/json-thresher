@@ -276,5 +276,5 @@ namespace sylvanmats::io::json{
         operator sylvanmats::io::json::Path(){return sylvanmats::io::json::Path("/");} // conversion function
     };
     
-    sylvanmats::io::json::Path operator"" _jp(const char* c, size_t s);
+    sylvanmats::io::json::Path operator""_jp(const char* c, size_t s);
     
