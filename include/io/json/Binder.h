@@ -14,6 +14,7 @@
 #include <map>
 #include <typeindex>
 #include <cmath>
+#include <stack>
 
 #include "io/json/Path.h"
 
@@ -68,6 +69,7 @@ namespace sylvanmats::io::json{
         G dagGraph;
         std::vector<sylvanmats::io::json::jobject> vertices;
         std::vector<std::tuple<graph::vertex_id_t<G>, graph::vertex_id_t<G>, int>> edges;
+        std::stack<size_t> associates;
         std::vector<std::vector<size_t>> depthProfile;
 
         size_t objectCount=0;
