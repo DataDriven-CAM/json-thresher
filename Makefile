@@ -23,7 +23,7 @@ build/src/io/json/Path.o: src/io/json/Path.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/io/json/Path.o src/io/json/Path.cpp
 	
-build/src/io/json/Binder.o: CXXFLAGS= -DNDEBUG -O3 -fPIC -pthread -std=c++26 -Iinclude -Isrc -I$(MODULE_DIRECTORY)/graph-v2/include -MMD
+build/src/io/json/Binder.o: CXXFLAGS= -DNDEBUG -O3 -fPIC -pthread -std=c++26 -Iinclude -Isrc -I$(MODULE_DIRECTORY)/graph-v2/include -I$(MODULE_DIRECTORY)/include -MMD
 build/src/io/json/Binder.o: src/io/json/Binder.cpp 
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/io/json/Binder.o src/io/json/Binder.cpp
