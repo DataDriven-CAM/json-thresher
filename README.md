@@ -1,6 +1,6 @@
 # json-thresher
 C++ json binder: designed for the language advantages and getting directly to what a user may want out of the json. Getting faster. Path matching is now ~0.002 secs in large object arrays(~2.44Mb).
-The initial binding step is getting fast; only a dag edge sort is taking 5 secs on the ~2.44Mb json. Hope to eliminate as I learn more how to setup a [graph-v2](https://github.com/stdgraph/graph-v2.git) container graph.
+The initial binding step is getting fast; only a dag edge sort is taking 5 secs on the ~2.44Mb json. Hope to eliminate as I learn more how to setup a [graph-v3](https://github.com/stdgraph/graph-v3.git) container graph.
 
 ## To build and test
 

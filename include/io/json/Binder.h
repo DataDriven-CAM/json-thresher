@@ -42,7 +42,7 @@ namespace sylvanmats::io::json{
     
     struct jobject{
         OBECT_TYPE obj_type;
-        size_t obj_size;
+        size_t id;
         size_t key_index=0;
         std::any value_index;
         size_t start=0;
@@ -106,8 +106,8 @@ namespace sylvanmats::io::json{
         void operator ()(Path& p, std::string_view sibling, std::function<void(std::string_view& traverseKey, std::any& traverValue)> apply){
 //            for(auto d : p.p){
 //                for(auto s : objects | std::views::filter([&sibling](jobject& s){return s.key.compare(sibling)==0;})){
-////                    std::cout<<std::get<OBJ_SIZE>(s)<<" here "<<s.obj_size<<" "<<s.key<<std::endl;
-//                    for(auto p : objects | std::views::filter([&s](jobject& p){return p.parent_index==s.obj_size;})){
+////                    std::cout<<std::get<OBJ_SIZE>(s)<<" here "<<s.id<<" "<<s.key<<std::endl;
+//                    for(auto p : objects | std::views::filter([&s](jobject& p){return p.parent_index==s.id;})){
 //                        //std::cout<<"\t"<<std::get<PAIR_DEPTH>(p)<<" "<<std::get<PAIR_KEY>(p)<<std::endl;
 //                        apply(p.key, p.value_index);
 //                    }
@@ -187,7 +187,7 @@ namespace sylvanmats::io::json{
                 return pairValue.compare(std::any_cast<std::string_view>(value))==0;
         };
         
-        bool match(Path& jp, bool last, std::function<bool(size_t obj_size, std::string_view key, std::any& v)> apply);
+        bool match(Path& jp, bool last, std::function<bool(size_t id, std::string_view key, std::any& v)> apply);
         
 //        void stroll(Path& jp, std::function<void(size_t objIndex, std::string_view& key, std::any& v)> apply, size_t i=0, unsigned int objParent=0);
         

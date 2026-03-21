@@ -6,7 +6,8 @@
     "repository": "https://rimmartin@github.com/DataDriven-CAM/json-thresher.git",
     "private": null,
     "dependencies": {
-      "graph-v2": "stdgraph/graph-v2"
+      "expected" : "TartanLlama/expected",
+      "graph-v3": "stdgraph/graph-v3"
     },
     "devDependencies": {
         "doctest": "onqtam/doctest",
