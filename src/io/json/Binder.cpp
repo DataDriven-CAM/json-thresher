@@ -521,6 +521,17 @@ namespace sylvanmats::io::json{
                     if(hit)dfs.cancel(graph::views::cancel_search::cancel_all);
                     }
                 }
+                else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==START_ARRAY){
+                // for (auto&& oe : graph::adj_list::out_edges(dagGraph, u)) {
+                //     auto oid=graph::target_id(dagGraph, oe);
+                //     for (auto&& oe : graph::adj_list::out_edges(dagGraph, u)) {
+                //         auto oid=graph::target_id(dagGraph, oe);
+                //         //graph::edge_value(g, v);
+                //         if(apply(vertices[oid].id, substr_view(jsonContent, vertices[oid].start, vertices[oid].end), vertices[oid].value_index))hit=true;
+                //         if(hit)dfs.cancel(graph::views::cancel_search::cancel_all);
+                //     }
+                // }
+                }
                 else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==START_OBJ){
 //                    std::cout<<"PAIR_KEY -> START_OBJ "<<substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end)<<std::endl;
                     std::any a{};
@@ -530,7 +541,7 @@ namespace sylvanmats::io::json{
                 }
                 else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==PAIR_VALUE)
                     if(apply(vertices[uid].id, substr_view(jsonContent, vertices[uid].start, vertices[uid].end), vertices[uid+1].value_index))hit=true;
-                    if(hit)dfs.cancel(graph::views::cancel_search::cancel_all);
+                    if(hit)dfs.cancel(graph::views::cancel_search::cancel_branch);
                 //branchQuality[currentDepth]=true;
             }
             else if(currentDepth==jp.p.size() && (vertices[uid].obj_type==START_OBJ)){
@@ -538,7 +549,7 @@ namespace sylvanmats::io::json{
                     auto oid=graph::target_id(dagGraph, oe);
                     //graph::edge_value(g, v);
                     if(apply(vertices[oid].id, substr_view(jsonContent, vertices[oid].start, vertices[oid].end), vertices[oid].value_index))hit=true;
-                    if(hit)dfs.cancel(graph::views::cancel_search::cancel_all);
+                    if(hit)dfs.cancel(graph::views::cancel_search::cancel_branch);
                 }
                 //branchQuality[currentDepth]=true;
             }

@@ -337,6 +337,55 @@ TEST_CASE("test reading package.json") {
         
 }
 
+TEST_CASE("test reading rcsb entries") {
+    std::string jsonContent=R"({
+  "query_id" : "576ce878-c722-449f-99f4-25bbd9874900",
+  "result_type" : "entry",
+  "total_count" : 24742,
+  "result_set" : [ {
+    "identifier" : "1QEZ",
+    "score" : 1.0
+  }, {
+    "identifier" : "5TY5",
+    "score" : 0.998681352206127
+  }, {
+    "identifier" : "5TEA",
+    "score" : 0.9984022615465041
+  }, {
+    "identifier" : "3EMJ",
+    "score" : 0.9968868015643181
+  }, {
+    "identifier" : "3FQ3",
+    "score" : 0.996652797728642
+  }, {
+    "identifier" : "3Q3L",
+    "score" : 0.9942990692889895
+  }, {
+    "identifier" : "1UDE",
+    "score" : 0.9940968147944879
+  }, {
+    "identifier" : "4Z74",
+    "score" : 0.9925680479904093
+  }, {
+    "identifier" : "3R5V",
+    "score" : 0.9924062811878638
+  }, {
+    "identifier" : "3R6E",
+    "score" : 0.9924062811878638
+  } ]
+})";
+    sylvanmats::io::json::Binder jsonBinder;
+    jsonBinder(jsonContent);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 71);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 70);
+    
+    sylvanmats::io::json::Path jp;
+    jp["result_set"]["*"]["*"]["identifier"];
+    jsonBinder(jp, [&](std::any& v){
+        std::cout<<"identifier"<<" "<<std::any_cast<std::string_view>(v)<<std::endl;
+    });
+}
+
 TEST_CASE("test reading mimes db.json") {
     sylvanmats::io::json::Binder jsonBinder;
         std::ifstream is("../cpp_modules/mime-db/db.json");

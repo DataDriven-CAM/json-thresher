@@ -9,6 +9,7 @@
 #include <typeindex>
 #include <iostream>
 #include <memory>
+#include <limits>
 
 namespace sylvanmats::io::json{
     template <typename T>
@@ -20,7 +21,8 @@ namespace sylvanmats::io::json{
 
     enum ACTION{
         NOP,
-        TEST
+        TEST,
+        ARRAY
     };
     
     struct element{
@@ -196,6 +198,9 @@ namespace sylvanmats::io::json{
             if(s.at(0)=='@' && offset!=std::string::npos){
                 this->ts.emplace_back(std::string(s.substr(offset+1)));
                 this->p.push_back({.label=std::string(s.substr(1, offset-1)), .action=TEST, .value=std::any_cast<std::string_view>(this->ts.back())});
+            }
+            else if(s.size()==1 && s.at(0)=='*'){
+                this->p.push_back({.label=s, .action=ARRAY});            
             }
             else{
                 this->p.push_back({.label=s, .action=NOP});            
