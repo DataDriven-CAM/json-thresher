@@ -16,7 +16,8 @@ namespace sylvanmats::io::json{
         reserve(reserveSize);
         for (const auto wordRange : splitting){
             std::string word(wordRange.begin(), wordRange.end());
-            if(!word.empty())this->p.push_back({.label=word, .action=NOP});
+            if(word.size()==1 && word.at(0)=='*')this->p.push_back({.label=word, .action=ARRAY});
+            else if(!word.empty())this->p.push_back({.label=word, .action=NOP});
             //if(!word.empty())push_back({.label=word, .action=NOP});
         }
     };
