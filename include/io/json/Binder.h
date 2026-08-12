@@ -84,6 +84,17 @@ namespace sylvanmats::io::json{
         Binder(const Binder& orig) =  delete;
         virtual ~Binder()= default;
         
+        void clear(){
+            if(dagGraph.size()>0)dagGraph.clear();
+            if(vertices.size()>0)vertices.clear();
+            if(edges.size()>0)edges.clear();
+            while(associates.size()>0)associates.pop();
+            if(matchTime>0)matchTime=0;
+            if(reductionTime>0)reductionTime=0;
+            if(bindTime>0)bindTime=0;
+            if(objDiff!=0)objDiff=0;
+            if(bindObjSize>0)bindObjSize=0;
+        }
         //Populate 
         void operator ()(std::istream& is);
         

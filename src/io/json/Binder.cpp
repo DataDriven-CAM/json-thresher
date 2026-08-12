@@ -17,11 +17,13 @@ namespace sylvanmats::io::json{
     
     void Binder::operator ()(std::istream& is){
         this->jsonContent=std::string((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
+        clear();
         bind(0);
     }
     
     void Binder::operator ()(std::string& jsonContent){
         this->jsonContent=jsonContent;
+        clear();
         bind(0);
     }
         
@@ -446,7 +448,7 @@ namespace sylvanmats::io::json{
     //auto graphTime = std::chrono::high_resolution_clock::now();
             depth=startDepth;
             using value = std::ranges::range_value_t<decltype(edges)>;
-            graph::vertex_id_t<G> N = static_cast<graph::vertex_id_t<G>>(size(graph::vertices(dagGraph)));
+            graph::vertex_id_t<G> N = static_cast<graph::vertex_id_t<G>>(graph::vertices(dagGraph).size());
             //dagGraph.reserve_vertices(vertices.size());
             //dagGraph.reserve_edges(edges.size());
             dagGraph.load_edges(edges, [](const auto& c) -> graph::copyable_edge_t<size_t, int> { return {std::get<0>(c), std::get<1>(c), std::get<2>(c)}; });

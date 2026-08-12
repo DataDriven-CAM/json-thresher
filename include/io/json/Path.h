@@ -173,6 +173,12 @@ namespace sylvanmats::io::json{
             return *this;
         }
         
+        const Path& operator *(const std::string& s){
+            //if(!this->p.empty())this->p.clear();
+            this->p.push_back({.label=std::string(s), .action=ARRAY});
+            return *this;
+        }
+        
         Path& operator/(const Path& p1){
 //            std::cout<<"in this divide "<<p1.p.size()<<" "<<this->p.size()<<std::endl;
             this->p.insert(this->p.end(), p1.p.begin(), p1.p.end());
