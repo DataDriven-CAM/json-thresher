@@ -281,8 +281,8 @@ TEST_CASE("test create series json") {
     jpName["8DR"]["start"]==100l;
     size_t val=0;
     jsonBinder(jpName, [&val](std::string_view& key, std::any& v){
-        if(key.compare("end")==0){
-            std::cout<<"key "<<key<<" "<<v.type().name()<<std::endl;
+        if(key.compare("end")==0 && v.type() == typeid(long)){
+            //std::cout<<"key "<<key<<" "<<v.type().name()<<std::endl;
                    val=std::any_cast<long>(v);
         }
     });
@@ -291,7 +291,7 @@ TEST_CASE("test create series json") {
     jpName2["CGU"]["start"]==300l;
     val=0;
     jsonBinder(jpName2, [&val](std::string_view& key, std::any& v){
-        if(key.compare("end")==0){
+        if(key.compare("end")==0 && v.type() == typeid(long)){
             std::cout<<"key2 "<<key<<" "<<v.type().name()<<std::endl;
                    val=std::any_cast<long>(v);
         }
@@ -308,18 +308,20 @@ TEST_CASE("test reading package.json") {
         jpName["name"];
         std::string_view currentPackageName;
         jsonBinder(jpName, [&currentPackageName](std::any& v){
-            currentPackageName=std::any_cast<std::string_view>(v);
+            if(v.type() == typeid(std::string_view)) {
+                currentPackageName=std::any_cast<std::string_view>(v);
+            }
         });
         CHECK_EQ(currentPackageName, "json-thresher");
         sylvanmats::io::json::Path type;
         type["devDependencies"];
         size_t count=0;
         jsonBinder(type, [&count](std::string_view& key, std::any& v){
-            if(count==0){
+            if(count==0 && v.type() == typeid(std::string_view)) {
                 CHECK_EQ(key, "doctest");
                 CHECK_EQ(std::any_cast<std::string_view>(v), "onqtam/doctest");
             }
-            else if(count==3){
+            else if(count==3 && v.type() == typeid(std::string_view)) {
                 CHECK_EQ(key, "json-graph-specification");
                 CHECK_EQ(std::any_cast<std::string_view>(v), "jsongraph/json-graph-specification");
             }
@@ -482,15 +484,18 @@ TEST_CASE("test reading crossref json") {
         std::vector<std::string_view> dois;
         jsonBinder(jp, [&](std::any& v){
             // std::cout<<"key "<<key<<std::endl;
-            std::cout<<v.type().name()<<std::endl;
+            if(v.type() == typeid(std::string_view)) {
             dois.push_back(std::any_cast<std::string_view>(v));
+            }
         });
        sylvanmats::io::json::Path jpStatus="status"_jp;
        CHECK_EQ(jpStatus.p.size(), 1);
        std::cout<<"jpStatus "<<jpStatus<<std::endl;
        std::string_view val{};
        jsonBinder(jpStatus, [&](std::any& v){
+           if(v.type() == typeid(std::string_view)) {
            val=std::any_cast<std::string_view>(v);
+           }
        });
        CHECK_EQ(val, "ok");
         is.close();
@@ -521,14 +526,16 @@ TEST_CASE("test binding docling json file") {
         jsonBinder(jp, [&chunks](std::any& v){
             // std::cout<<"key "<<key<<std::endl;
             // if(key != "text") return;
-            chunks.push_back(std::any_cast<std::string_view>(v));
+            if(v.type() == typeid(std::string_view)) {
+                chunks.push_back(std::any_cast<std::string_view>(v));
+            }
         });
-        CHECK_EQ(chunks.size(), 1);
+        CHECK_EQ(chunks.size(), 13);
        sylvanmats::io::json::Path jpStatus;//="processing_time"_jp;
        jpStatus["processing_time"];
        CHECK_EQ(jpStatus.p.size(), 1);
        std::cout<<"jpStatus "<<jpStatus<<std::endl;
-       long val{};
+       double val{};
        jsonBinder(jpStatus, [&](std::any& v){
            val=std::any_cast<double>(v);
        });

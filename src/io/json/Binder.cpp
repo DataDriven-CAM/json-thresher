@@ -196,7 +196,10 @@ namespace sylvanmats::io::json{
         
     //get
     void Binder::operator ()(Path& p, std::function<void(std::any& v)> apply){
-        bool hit=match(p, false, [&apply](size_t id, std::string_view key, std::any& v)->bool{apply(v);return true;});
+        bool hit=match(p, false, [&apply](size_t id, std::string_view key, std::any& v)->bool{
+            apply(v);
+            return true;
+        });
     }
         
     //traverse
