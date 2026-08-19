@@ -79,6 +79,7 @@ namespace sylvanmats::io::json{
         double  bindTime=0.0;
         int objDiff=0;
         size_t bindObjSize=0;
+        bool singleMatch=false;
     public:
         Binder()=default;
         Binder(const Binder& orig) =  delete;

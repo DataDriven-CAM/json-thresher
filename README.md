@@ -60,7 +60,7 @@ generates a json:
 ### Finding an elements properties
 ```
     sylvanmats::io::json::Path jpSymbol;
-    jpSymbol["elements"]["*"]["*"]["symbol"]=="C";
+    jpSymbol["elements"]["*"]["symbol"]=="C";
 
 ```
 matches any object in the elements array where symbol is C; and from periodic table [Periodic-Table-JSON](https://github.com/Bowserinator/Periodic-Table-JSON.git) 

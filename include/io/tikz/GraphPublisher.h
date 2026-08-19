@@ -13,7 +13,7 @@
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 
-namespace sylanmats::io::tikz{
+namespace sylvanmats::io::tikz{
 
     class GraphPublisher{
     protected:

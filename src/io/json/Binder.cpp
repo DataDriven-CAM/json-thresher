@@ -12,6 +12,7 @@
 #include "io/json/Binder.h"
 
 #include "graph/views/dfs.hpp"
+#include "graph/views/incidence.hpp"
 
 namespace sylvanmats::io::json{
     
@@ -38,6 +39,7 @@ namespace sylvanmats::io::json{
             bind(0);
         }
         else if(jp.p.empty()){
+            singleMatch=true;
             size_t insertionObjSize=(graph::num_vertices(dagGraph)>=2) ? graph::num_vertices(dagGraph)-2 : 1;
             size_t insertionOffset=findInsertionOffset(vertices[insertionObjSize].end);// : jsonContent.size() - 1;
             
@@ -61,8 +63,11 @@ namespace sylvanmats::io::json{
         }
         else {
             auto start = std::chrono::high_resolution_clock::now();
+            size_t count=0;
+            singleMatch=true;
             bool hit=match(jp, true, [&](size_t id, std::string_view key, std::any& v)-> bool{
                 auto end = std::chrono::high_resolution_clock::now();
+                count++;
                 matchTime=std::chrono::duration_cast<std::chrono::nanoseconds>(end-start).count()*1.0e-9;
                 size_t insertionOffset=0;
                 size_t indention=0;
@@ -101,11 +106,14 @@ namespace sylvanmats::io::json{
 //            bind(0);
                 return true;
             });
+            std::cout<<"match count "<<count<<std::endl;
         }
         return true;
     }
         
     void Binder::operator ()(Path& jp, std::function<std::tuple<bool, std::string_view, std::any>(void)> apply){
+        singleMatch=true;
+        size_t count=0;
         bool hit=match(jp, true, [&](size_t id, std::string_view key, std::any& v)-> bool{
             bool firstCall=true;
             bool notfinal=false;
@@ -135,6 +143,9 @@ namespace sylvanmats::io::json{
             size_t count=0;
             //dagGraph.resize_vertices(count);
             //dagGraph.resize_edges(count);
+            return true;
+        });
+        if(hit){
             dagGraph=G{};
             depthProfile.clear();
             vertices.clear();
@@ -142,12 +153,13 @@ namespace sylvanmats::io::json{
             //dag.clear();
             //depthList.clear();
             bind(0);
-            return true;
-        });
+
+        }
     }
 
     //remove
     bool Binder::operator ()(Path& jp, std::string removalKey){
+        singleMatch=true;
         bool ret=false;
         bool hit=match(jp, false, [&](size_t id, std::string_view key, std::any& v)->bool{
             auto u=*find_vertex(dagGraph, id);
@@ -191,13 +203,13 @@ namespace sylvanmats::io::json{
     void Binder::operator ()(Path& p, std::function<void(std::string_view& key, std::any& v)> apply){
         bool hit=match(p, false, [&](size_t id, std::string_view key, std::any& v)->bool{
             auto u=*find_vertex(dagGraph, id);
-             for (auto&& oe : graph::adj_list::out_edges(dagGraph, u)) {
-                    auto oid=graph::target_id(dagGraph, oe);
-                    if(vertices[oid].obj_type==PAIR_KEY){
+            for (auto&& oe : graph::adj_list::out_edges(dagGraph, u)) {
+                auto oid=graph::target_id(dagGraph, oe);
+                if(vertices[oid].obj_type==PAIR_KEY){
                     std::string_view key=substr_view(jsonContent, vertices[oid].start, vertices[oid].end);
                     apply(key, vertices[oid+1].value_index);
-                    }
                 }
+            }
             return true;
         });
     }
@@ -205,11 +217,30 @@ namespace sylvanmats::io::json{
     void Binder::display(){
         //std::string depthText=fmt::format("{}\n", depthList);
         //std::cout<<depthText;
-        for(std::vector<std::vector<size_t>>::iterator it=depthProfile.begin();it!=depthProfile.end();it++){
-            std::cout<<(std::distance(depthProfile.begin(), it))<<std::endl;
-            //std::string depthProfile=std::format("{}\n", (*it));
-            //std::cout<<"\t"<<depthProfile;
+        auto it = std::ranges::find_if(dagGraph.vertex_ids(),
+                                 [&](auto vid) { return dagGraph.vertex_value(vid).id==0; });
+        graph::vertex_id_t<G> vid=static_cast<graph::vertex_id_t<G>>(it - std::begin(dagGraph.vertex_ids()));
+        auto dfs      = graph::views::vertices_dfs(dagGraph, vid);
+        size_t depth=dfs.depth();
+        size_t count=0;
+        size_t count2=0;
+         for (auto&& [u] : dfs) {
+            auto uid=graph::vertex_id(dagGraph, u);
+            size_t outCount=0;
+            for (auto&& [tid, uv] : graph::views::incidence(dagGraph, u)) {
+                auto targetid = graph::adj_list::target_id(dagGraph, uv);
+                outCount++;
+            }
+          size_t currentDepth=graph::vertex_value(dagGraph, u).depth;
+          for(size_t i=0;i<currentDepth;i++)std::cout<<" ";
+          std::cout<<count<<" "<<currentDepth<<" "<<depth<<" "<<uid<<" "<<graph::vertex_value(dagGraph, u).id<<" "<<graph::vertex_value(dagGraph, u).obj_type<<" "<<graph::vertex_value(dagGraph, u).start<<" "<<graph::vertex_value(dagGraph, u).end<<" depth: "<<graph::vertex_value(dagGraph, u).depth<<" "<<outCount<<" "<<substr_view(jsonContent, vertices[uid].start, vertices[uid].end)<<std::endl;
+          count++;
         }
+        // for(std::vector<std::vector<size_t>>::iterator it=depthProfile.begin();it!=depthProfile.end();it++){
+        //     std::cout<<(std::distance(depthProfile.begin(), it))<<std::endl;
+        //     std::string depthProfile=std::format("{}\n", (*it));
+        //     std::cout<<"\t"<<depthProfile;
+        // }
     }
     
     void Binder::shortenDAG(std::string::size_type insertionOffset, std::string::size_type insertionObjSize){
@@ -282,58 +313,61 @@ namespace sylvanmats::io::json{
                     hitComma=false;
                 }
                 if((*it)=='{'){
-                    if(firstObject){
-                        vertices.push_back(jobject{.obj_type=START_OBJ, .id=vertices.size(), .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
-                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
-                        depthProfile[depth].push_back(vertices.back().id);
-                        depth++;
-                    }
-                    else{
-                        if(vertices.back().obj_type==PAIR_KEY || hitComma)depth++;
+                    // if(firstObject){
                         vertices.push_back(jobject{.obj_type=START_OBJ, .id=vertices.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
                         if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
                         depthProfile[depth].push_back(vertices.back().id);
                         depth++;
-                    }
+                    // }
+                    // else{
+                    //     // if(vertices.back().obj_type==PAIR_KEY || hitComma)depth++;
+                    //     vertices.push_back(jobject{.obj_type=START_OBJ, .id=vertices.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
+                    //     if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                    //     depthProfile[depth].push_back(vertices.back().id);
+                    //     depth++;
+                    // }
                     hitColon=false;
                     hitComma=false;
                     firstObject=false;
                     objectCount++;
                 }
                 else if((*it)=='}'){
-                    if(vertices.back().obj_type!=END_ARRAY && vertices.back().obj_type!=END_OBJ)if(depth>0)depth--;
+                    // if(vertices.back().obj_type!=END_ARRAY && vertices.back().obj_type!=END_OBJ){
+                        if(depth>0)depth--;
+                    // }
                     vertices.push_back(jobject{.obj_type=END_OBJ, .id=vertices.size(), .key_index=offset, .start=offset, .end=offset+1, .depth=depth});
                     //if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
                     depthProfile[depth].push_back(vertices.back().id);
                     //if(depth==0)std::cout<<"EO "<<vertices.back().id<<std::endl;
-                    if(depth>0)depth--;
+                    // if(depth>0)depth--;
                     hitColon=false;
                     hitComma=false;
                 }
                 else if((*it)=='['){
-                    if(firstObject){
-                        vertices.push_back(jobject{.obj_type=START_ARRAY, .id=vertices.size(), .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
-                        if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
-                        depthProfile[depth].push_back(vertices.back().id);
-                        depth++;
-                    }
-                    else{
-                        if(vertices.back().obj_type==PAIR_KEY || hitComma)depth++;
+                    // if(firstObject){
                         vertices.push_back(jobject{.obj_type=START_ARRAY, .id=vertices.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
                         if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
                         depthProfile[depth].push_back(vertices.back().id);
                         depth++;
-                    }
+                    // }
+                    // else{
+                    //     // if(vertices.back().obj_type==PAIR_KEY || hitComma)depth++;
+                    //     vertices.push_back(jobject{.obj_type=START_ARRAY, .id=vertices.size(), .key_index=offset, .value_index=object(), .start=offset, .end=offset+1, .depth=depth});
+                    //     if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                    //     depthProfile[depth].push_back(vertices.back().id);
+                    //     depth++;
+                    // }
                     hitColon=false;
                     hitComma=false;
                     firstObject=false;
                 }
                 else if((*it)==']'){
-                    if(vertices.back().obj_type!=END_ARRAY && vertices.back().obj_type!=END_OBJ)if(depth>0)depth--;
-                    vertices.push_back(jobject{.obj_type=END_ARRAY, .id=vertices.size(), .key_index=offset, .start=offset, .end=offset, .depth=depth});
-                    //if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
-                    depthProfile[depth].push_back(vertices.back().id);
+                    // if(vertices.back().obj_type!=END_ARRAY && vertices.back().obj_type!=END_OBJ)if(depth>0)depth--;
                     if(depth>0)depth--;
+                    vertices.push_back(jobject{.obj_type=END_ARRAY, .id=vertices.size(), .key_index=offset, .start=offset, .end=offset, .depth=depth});
+                    if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
+                    depthProfile[depth].push_back(vertices.back().id);
+                    // if(depth>0)depth--;
                     hitColon=false;
                     hitComma=false;
                 }
@@ -345,13 +379,15 @@ namespace sylvanmats::io::json{
                     int c=0;
                     while((*it)!='"'){if((*it)=='\\'){++it;offset++;};++it;offset++;c++;};
                     if(!hitColon){
+                        // if(std::string_view(itStart, it).find("S-Polynomials")!=std::string_view::npos)
+                        //    std::cout<<hitColon<<" PK "<<vertices.size()<<" "<<std::string_view(itStart, it)<<std::endl;
                         vertices.push_back(jobject{.obj_type=PAIR_KEY, .id=vertices.size(), .key_index=offset, .start=startOffset, .end=offset, .depth=depth});
                         if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
                         depthProfile[depth].push_back(vertices.back().id);
                     }
                     else{
-//                        if(std::string_view(itStart, it).compare("H")==0)
-//                            std::cout<<"PV "<<vertices.size()<<" "<<std::string_view(itStart, it)<<std::endl;
+                    // if(std::string_view(itStart, it).find("S-Polynomials")!=std::string_view::npos)
+                        //    std::cout<<"\tPV "<<vertices.size()<<" "<<std::string_view(itStart, it)<<std::endl;
                         vertices.push_back(jobject{.obj_type=PAIR_VALUE, .id=vertices.size(), .key_index=offset, .value_index=std::string_view(itStart, it), .start=startOffset, .end=offset, .depth=depth});
                         if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
                         depthProfile[depth].push_back(vertices.back().id);
@@ -490,25 +526,29 @@ namespace sylvanmats::io::json{
         graph::vertex_id_t<G> vid=static_cast<graph::vertex_id_t<G>>(it - std::begin(dagGraph.vertex_ids()));
         auto dfs      = graph::views::vertices_dfs(dagGraph, vid);
         size_t depth=dfs.depth();
-        //std::vector<bool> branchQuality(jp.p.size(), false);
         size_t count=0;
         size_t count2=0;
-         for (auto&& [u] : dfs) {
+        for (auto&& [u] : dfs) {
             auto uid=graph::vertex_id(dagGraph, u);
+            // size_t inCount=0;
+            // for (auto&& e : graph::views::in_incidence(dagGraph, u)) {
+            //     auto source_id = graph::adj_list::source_id(dagGraph, e);
+            //     inCount++;
+            // }
+            // std::cout<<uid<<" "<<inCount<<std::endl;
           size_t currentDepth=graph::vertex_value(dagGraph, u).depth;
           count++;
           if(currentDepth==0)continue;
           count2++;
           currentDepth--;
-          if(currentDepth>=jp.p.size()){dfs.cancel(graph::views::cancel_search::cancel_branch);continue;};
-          //bool good=(currentDepth<jp.p.size()) ? std::all_of(branchQuality.begin(), branchQuality.begin()+currentDepth, [](bool a){return a;}) : currentDepth==0;
-//            std::string bqText=fmt::format("{}\n", branchQuality);
-//            if(/*branchQuality[0] ||*/ (currentDepth<jp.p.size() && jp.p[currentDepth].label.compare(substr_view(jsonContent, vertices[uid].start, vertices[uid].end))==0))std::cout<<dfs.depth()<<" good "<<good<<" "<<currentDepth<<" "<<jp.p[std::min(currentDepth, jp.p.size()-1)].label<<" "<<substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end)<<" "<<bqText;
+          if(currentDepth>=jp.p.size()){
+                continue;
+           }
           if(currentDepth<jp.p.size()){
             if(vertices[uid].obj_type==PAIR_KEY && (jp.p[currentDepth].label.compare("*")==0 || substr_view(jsonContent, vertices[uid].start, vertices[uid].end).compare(jp.p[currentDepth].label)==0)){
-//                if(jp.p[currentDepth].action==TEST)std::cout<<vid<<" test dfs: "<<uid<<" "<<graph::vertex_value(dagGraph, u).id<<" "<<currentDepth<<" good: "<<good<<" "<<jp.p[currentDepth].label<<" "<<std::all_of(branchQuality.begin(), branchQuality.begin()+currentDepth, [](bool a){return a;})<<std::endl;
-                if(currentDepth==jp.p.size()-1 && jp.p[currentDepth].action==TEST){
-//                    std::cout<<vid<<"\ttest: "<<substr_view(jsonContent, vertices[uid].start, vertices[uid].end)<<" "<<jp.p[currentDepth].label<<" "<<(vertices[uid+1].obj_type==PAIR_VALUE)<<" "<<test(substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end), jp.p[currentDepth].value)<<std::endl;
+            //    if(jp.p[currentDepth].action==TEST)std::cout<<vid<<" test dfs: "<<uid<<" "<<graph::vertex_value(dagGraph, u).id<<" "<<currentDepth<<" "<<jp.p[currentDepth].label<<std::endl;
+                if(currentDepth<jp.p.size() && jp.p[currentDepth].action==TEST){
+                //    std::cout<<vid<<"\ttest: "<<substr_view(jsonContent, vertices[uid].start, vertices[uid].end)<<" "<<jp.p[currentDepth].label<<" "<<(vertices[uid+1].obj_type==PAIR_VALUE)<<" "<<test(substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end), jp.p[currentDepth].value)<<std::endl;
                     if(substr_view(jsonContent, vertices[uid].start, vertices[uid].end).compare(jp.p[currentDepth].label)==0 && vertices[uid+1].obj_type==PAIR_VALUE && test(substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end), jp.p[currentDepth].value)){
                         size_t parentObjSize=depthProfile[currentDepth].back();
                         bool ihit=parentObjSize<vertices[uid].id;
@@ -520,48 +560,45 @@ namespace sylvanmats::io::json{
                     //std::cout<<sid<<" "<<uid<<" TEST "<<jp.p[currentDepth].value<<" "<<substr_view(jsonContent, vertices[uid].start, vertices[uid].end)<<" "<<substr_view(jsonContent, vertices[parentObjSize].start, vertices[parentObjSize].end)<<std::endl;
                     std::any a{};
                     if(apply(parentObjSize, substr_view(jsonContent, vertices[parentObjSize].start, vertices[parentObjSize].end), a))hit=true;
-                    if(hit)dfs.cancel(graph::views::cancel_search::cancel_all);
+                    if(!singleMatch && hit && currentDepth>0 && jp.p[currentDepth-1].label.compare("*")!=0)dfs.cancel(graph::views::cancel_search::cancel_all);
                     }
                 }
-                else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==START_ARRAY){
-                // for (auto&& oe : graph::adj_list::out_edges(dagGraph, u)) {
-                //     auto oid=graph::target_id(dagGraph, oe);
-                //     for (auto&& oe : graph::adj_list::out_edges(dagGraph, u)) {
-                //         auto oid=graph::target_id(dagGraph, oe);
-                //         //graph::edge_value(g, v);
-                //         if(apply(vertices[oid].id, substr_view(jsonContent, vertices[oid].start, vertices[oid].end), vertices[oid].value_index))hit=true;
-                //         if(hit)dfs.cancel(graph::views::cancel_search::cancel_all);
-                //     }
-                // }
+                else if(currentDepth<jp.p.size() && vertices[uid+1].obj_type==START_ARRAY){
+                    // std::cout<<"START_ARRAY "<<substr_view(jsonContent, vertices[uid].start, vertices[uid].end)<<std::endl;
+                }
+                else if(currentDepth<jp.p.size()-1 && vertices[uid+1].obj_type==START_OBJ && jp.p[currentDepth].label.compare("*")==0){
+                    // std::cout<<"START_OBJ "<<substr_view(jsonContent, vertices[uid].start, vertices[uid].end)<<std::endl;
                 }
                 else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==START_OBJ){
 //                    std::cout<<"PAIR_KEY -> START_OBJ "<<substr_view(jsonContent, vertices[uid+1].start, vertices[uid+1].end)<<std::endl;
                     std::any a{};
                     if(apply(vertices[uid+1].id, substr_view(jsonContent, vertices[uid].start, vertices[uid].end), a))hit=true;
                     //std::cout<<"hit "<<hit<<std::endl;
-                    if(hit)dfs.cancel(graph::views::cancel_search::cancel_all);
+                    if(!singleMatch && hit && currentDepth>0 && jp.p[currentDepth-1].label.compare("*")!=0)dfs.cancel(graph::views::cancel_search::cancel_all);
                 }
-                else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==PAIR_VALUE)
+                else if(currentDepth==jp.p.size()-1 && vertices[uid+1].obj_type==PAIR_VALUE){
                     if(apply(vertices[uid].id, substr_view(jsonContent, vertices[uid].start, vertices[uid].end), vertices[uid+1].value_index))hit=true;
-                    if(hit)dfs.cancel(graph::views::cancel_search::cancel_branch);
-                //branchQuality[currentDepth]=true;
+                    if(!singleMatch && hit && currentDepth>0 && jp.p[currentDepth-1].label.compare("*")!=0)dfs.cancel(graph::views::cancel_search::cancel_branch);
+                }
             }
-            else if(currentDepth==jp.p.size() && (vertices[uid].obj_type==START_OBJ)){
+            else if(currentDepth==jp.p.size()-1 && (vertices[uid].obj_type==START_OBJ)){
                 for (auto&& oe : graph::adj_list::out_edges(dagGraph, u)) {
                     auto oid=graph::target_id(dagGraph, oe);
                     //graph::edge_value(g, v);
                     if(apply(vertices[oid].id, substr_view(jsonContent, vertices[oid].start, vertices[oid].end), vertices[oid].value_index))hit=true;
-                    if(hit)dfs.cancel(graph::views::cancel_search::cancel_branch);
+                    if(!singleMatch && hit && currentDepth>0 && jp.p[currentDepth-1].label.compare("*")!=0)dfs.cancel(graph::views::cancel_search::cancel_branch);
                 }
-                //branchQuality[currentDepth]=true;
             }
-//            else if(jp.p[currentDepth].label.compare("*")==0)branchQuality[currentDepth]=true;
-//            else branchQuality[currentDepth]=false;
+           else if(currentDepth<jp.p.size() && jp.p[currentDepth].label.compare("*")==0){
+            // std::cout<<currentDepth<<" at * match status "<<count<<" "<<count2<<" "<<hit<<std::endl;
+           }
+//            else {};
           }
-          else if(currentDepth<jp.p.size() && jp.p[currentDepth].label.compare("*")==0)continue;//branchQuality[currentDepth]=true;
-          else dfs.cancel(graph::views::cancel_search::cancel_branch);
+          else if(currentDepth<jp.p.size() && jp.p[currentDepth].label.compare("*")==0){continue;}
+          else if(!singleMatch)dfs.cancel(graph::views::cancel_search::cancel_branch);
         }
 //        std::cout<<"match status "<<count<<" "<<count2<<" "<<hit<<std::endl;
+        singleMatch=false;
         return hit;
     }
     

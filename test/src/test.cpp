@@ -65,12 +65,16 @@ TEST_CASE("test tiny periodic table json") {
     CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 17);
     CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 16);
     //jsonBinder.display();
-    sylanmats::io::tikz::GraphPublisher graphPublisher;
+    sylvanmats::io::tikz::GraphPublisher graphPublisher;
     std::string&& tikzDrawing=graphPublisher(jsonBinder);
     std::filesystem::path filePath="../documents/json_graph.tex";
     std::ofstream ofs(filePath);
     ofs<<tikzDrawing<<std::endl;
     ofs.close();
+    jsonBinder(jsonContent);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 17);
+    CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 17);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 16);
 }
 
 TEST_CASE("test periodic table json") {
@@ -155,9 +159,9 @@ TEST_CASE("test periodic table json") {
     CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 131);
     CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 131);
     CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 130);
-    //jsonBinder.display();
+    // jsonBinder.display();
     sylvanmats::io::json::Path jpName;
-    jpName["elements"]["*"]["*"]["symbol"]=="H";
+    jpName["elements"]["*"]["symbol"]=="H";
     size_t val=0;
     jsonBinder(jpName, [&](std::string_view& key, std::any& v){
         if(key.compare("number")==0){
@@ -166,7 +170,7 @@ TEST_CASE("test periodic table json") {
     });
     CHECK_EQ(val, 1);
     sylvanmats::io::json::Path jpNameC;
-    jpNameC["elements"]["*"]["*"]["symbol"]=="C";
+    jpNameC["elements"]["*"]["symbol"]=="C";
     val=0;
     jsonBinder(jpNameC, [&](std::string_view& key, std::any& v){
         if(key.compare("number")==0){
@@ -174,12 +178,12 @@ TEST_CASE("test periodic table json") {
         }
     });
     CHECK_EQ(val, 6);
-    sylanmats::io::tikz::GraphPublisher graphPublisher;
-    std::string&& tikzDrawing=graphPublisher(jsonBinder);
-    std::filesystem::path filePath="../documents/json_graph.tex";
-    std::ofstream ofs(filePath);
-    ofs<<tikzDrawing<<std::endl;
-    ofs.close();
+    // sylvanmats::io::tikz::GraphPublisher graphPublisher;
+    // std::string&& tikzDrawing=graphPublisher(jsonBinder);
+    // std::filesystem::path filePath="../documents/json_graph.tex";
+    // std::ofstream ofs(filePath);
+    // ofs<<tikzDrawing<<std::endl;
+    // ofs.close();
     
 }
 
@@ -269,23 +273,26 @@ TEST_CASE("test create series json") {
         return std::make_tuple(true, "end", 400);
     });
     CHECK_EQ(jsonBinder.countObjects(), 3);
-    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 16);
-    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 15);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 24);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 23);
     //jsonBinder.display();
+    std::cout<<jsonBinder<<std::endl;
     sylvanmats::io::json::Path jpName;
-    jpName["8DR"]["*"]["start"]==100l;
+    jpName["8DR"]["start"]==100l;
     size_t val=0;
-    jsonBinder(jpName, [&](std::string_view& key, std::any& v){
+    jsonBinder(jpName, [&val](std::string_view& key, std::any& v){
         if(key.compare("end")==0){
+            std::cout<<"key "<<key<<" "<<v.type().name()<<std::endl;
                    val=std::any_cast<long>(v);
         }
     });
     CHECK_EQ(val, 200);
     sylvanmats::io::json::Path jpName2;
-    jpName2["CGU"]["*"]["start"]==300l;
+    jpName2["CGU"]["start"]==300l;
     val=0;
-    jsonBinder(jpName2, [&](std::string_view& key, std::any& v){
+    jsonBinder(jpName2, [&val](std::string_view& key, std::any& v){
         if(key.compare("end")==0){
+            std::cout<<"key2 "<<key<<" "<<v.type().name()<<std::endl;
                    val=std::any_cast<long>(v);
         }
     });
@@ -380,9 +387,9 @@ TEST_CASE("test reading rcsb entries") {
     CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 70);
     
     sylvanmats::io::json::Path jp;
-    jp["result_set"]["*"]["*"]["identifier"];
+    jp["result_set"]["*"]["identifier"];
     jsonBinder(jp, [&](std::any& v){
-        std::cout<<"identifier"<<" "<<std::any_cast<std::string_view>(v)<<std::endl;
+        // std::cout<<"identifier"<<" "<<std::any_cast<std::string_view>(v)<<std::endl;
     });
 }
 
@@ -453,6 +460,132 @@ TEST_CASE("test component json" * doctest::skip()) {
     //std::cout << "match time: " << std::chrono::duration_cast<std::chrono::nanoseconds>(endTime-intermediateTime).count()*1.0e-9 << "s\n";
     //std::cout << "elapsed time: " << std::chrono::duration_cast<std::chrono::nanoseconds>(endTime-startTime).count()*1.0e-9 << "s\n";
 
+}
+
+TEST_CASE("test reading crossref json") {
+    sylvanmats::io::json::Binder jsonBinder;
+        std::ifstream is("/home/roger/sylvanmats/antlr4-thresher/tmp/crossref.json");
+        std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
+        jsonBinder(jsonContent);
+            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 4484);
+            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 4483);
+            sylvanmats::io::tikz::GraphPublisher graphPublisher;
+            std::string&& tikzDrawing=graphPublisher(jsonBinder);
+            std::filesystem::path filePath="../documents/crossref.tex";
+            std::ofstream ofs(filePath);
+            ofs<<tikzDrawing<<std::endl;
+            ofs.close();
+        sylvanmats::io::json::Path jp;//="message/items/*/DOI"_jp;
+        jp["message"]["items"]["*"]["DOI"];
+        CHECK_EQ(jp.p.size(), 4);
+//        std::cout<<"jp "<<jp<<std::endl;
+        std::vector<std::string_view> dois;
+        jsonBinder(jp, [&](std::any& v){
+            // std::cout<<"key "<<key<<std::endl;
+            std::cout<<v.type().name()<<std::endl;
+            dois.push_back(std::any_cast<std::string_view>(v));
+        });
+       sylvanmats::io::json::Path jpStatus="status"_jp;
+       CHECK_EQ(jpStatus.p.size(), 1);
+       std::cout<<"jpStatus "<<jpStatus<<std::endl;
+       std::string_view val{};
+       jsonBinder(jpStatus, [&](std::any& v){
+           val=std::any_cast<std::string_view>(v);
+       });
+       CHECK_EQ(val, "ok");
+        is.close();
+}
+
+TEST_CASE("test binding docling json file") {
+    sylvanmats::io::json::Binder jsonBinder;
+        std::ifstream is("/home/roger/sylvanmats/antlr4-thresher/tmp/docling.json");
+        std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
+        jsonBinder(jsonContent);
+            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 619);
+            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 618);
+            sylvanmats::io::tikz::GraphPublisher graphPublisher;
+            std::string&& tikzDrawing=graphPublisher(jsonBinder);
+            std::filesystem::path filePath="../documents/docling.tex";
+            std::ofstream ofs(filePath);
+            ofs<<tikzDrawing<<std::endl;
+            ofs.close();
+            // jsonBinder.display();
+//            std::ofstream ofs("check.txt");
+//            ofs<<depthText;
+//            ofs.close();
+        sylvanmats::io::json::Path jp;//="chunks/*/text"_jp;
+        jp["chunks"]["*"]["text"];
+        CHECK_EQ(jp.p.size(), 3);
+//        std::cout<<"jp "<<jp<<std::endl;
+        std::vector<std::string_view> chunks;
+        jsonBinder(jp, [&chunks](std::any& v){
+            // std::cout<<"key "<<key<<std::endl;
+            // if(key != "text") return;
+            chunks.push_back(std::any_cast<std::string_view>(v));
+        });
+        CHECK_EQ(chunks.size(), 1);
+       sylvanmats::io::json::Path jpStatus;//="processing_time"_jp;
+       jpStatus["processing_time"];
+       CHECK_EQ(jpStatus.p.size(), 1);
+       std::cout<<"jpStatus "<<jpStatus<<std::endl;
+       long val{};
+       jsonBinder(jpStatus, [&](std::any& v){
+           val=std::any_cast<double>(v);
+       });
+       CHECK(val== doctest::Approx(28.8807759));
+        is.close();
+}
+
+TEST_CASE("test reading docling json") {
+    std::string jsonContent=R"({
+    "chunks": [
+        {
+            "filename": "Buchberger.pdf",
+            "chunk_index": 0,
+            "text": "S-Polynomials and Buchberger's Algorithm\nJ.M. Selig\nLondon South Bank University,\nFaculty of Business London SE1 0AA, UK"
+        },
+        {
+            "filename": "Buchberger.pdf",
+            "chunk_index": 1,
+            "text": "1 S-Polynomials\nAs we have seen in previous talks one of the problems we encounter in the division algorithm is if the leading terms of a pair of polynomials cancel. So here we study this phenomenon in some detail.\nFor any pair of polynomials f 1 , f 2 ∈ K [ x 1 , x 2 , . . . , x n ] and a given monomial order, we can form their S-polynomial which deliberately cancels the leading terms of both polynomials. For example, using deglex order, suppose f 1 = 3 x 3 y +2 xy -y 2 and f 2 = 2 xy 2 -5 y 3 , then we can write,\n<!-- formula-not-decoded -->\nThis can be written more generally if we introduce the notion of the least common multiple of a pair of monomials. Consider monomials x α and x β , where as usual this is short for x α = x α 1 1 x α 2 2 · · · x α n n and similar for the other monomial. It is not too difficult to see that the least common multiple (LCM) of these can be found by taking the maximum of each index,"
+        }
+    ],
+    "processing_time": 28.88077590699868
+})";
+    sylvanmats::io::json::Binder jsonBinder;
+        jsonBinder(jsonContent);
+            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 23);
+            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 22);
+            sylvanmats::io::tikz::GraphPublisher graphPublisher;
+            std::string&& tikzDrawing=graphPublisher(jsonBinder);
+            std::filesystem::path filePath="../documents/docling.tex";
+            std::ofstream ofs(filePath);
+            ofs<<tikzDrawing<<std::endl;
+            ofs.close();
+            // jsonBinder.display();
+//            std::ofstream ofs("check.txt");
+//            ofs<<depthText;
+//            ofs.close();
+        sylvanmats::io::json::Path jp;//="chunks/*/text"_jp;
+        jp["chunks"]["*"]["text"];
+        CHECK_EQ(jp.p.size(), 3);
+//        std::cout<<"jp "<<jp<<std::endl;
+        std::vector<std::string_view> chunks;
+        jsonBinder(jp, [&chunks](std::any& v){
+            // std::cout<<"key "<<key<<std::endl;
+            // if(key != "text") return;
+            chunks.push_back(std::any_cast<std::string_view>(v));
+        });
+        CHECK_EQ(chunks.size(), 2);
+       sylvanmats::io::json::Path jpStatus;//="processing_time"_jp;
+       jpStatus["processing_time"];
+       CHECK_EQ(jpStatus.p.size(), 1);
+       std::cout<<"jpStatus "<<jpStatus<<std::endl;
+       double val{};
+       jsonBinder(jpStatus, [&](std::any& v){
+           val=std::any_cast<double>(v);
+       });
+       CHECK(val== doctest::Approx(28.8807759));
 }
 
 }
