@@ -34,7 +34,7 @@ cnpm test
             currentPackageName=std::any_cast<std::string_view>(v);
         });
 ```
-finds the package name; currentPackageNameshould equal "json-thresher".
+finds the package name; currentPackageName should equal "json-thresher".
 
 ### Add an object and properties
 
@@ -66,7 +66,7 @@ generates a json:
 matches any object in the elements array where symbol is C; and from periodic table [Periodic-Table-JSON](https://github.com/Bowserinator/Periodic-Table-JSON.git) 
 and traverses all value pairs for the element by ```jsonBinder(jpSymbol, [&](std::string_view& key, std::any& v){});```.  
 
-For traversing an object with a child value pair "start": 100, 
+For traversing an object with a child value pair "start": 1001, 
 ```
     sylvanmats::io::json::Path jpName;
     jpName["8DR"]["*"]["start"]==100l;
