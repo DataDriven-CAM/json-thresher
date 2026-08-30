@@ -488,6 +488,8 @@ TEST_CASE("test reading crossref json") {
             dois.push_back(std::any_cast<std::string_view>(v));
             }
         });
+        CHECK_EQ(dois.size(), 20);
+        std::cout<<"dois "<<std::format("{}",dois)<<std::endl;
        sylvanmats::io::json::Path jpStatus="status"_jp;
        CHECK_EQ(jpStatus.p.size(), 1);
        std::cout<<"jpStatus "<<jpStatus<<std::endl;

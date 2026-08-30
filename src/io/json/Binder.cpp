@@ -306,6 +306,7 @@ namespace sylvanmats::io::json{
             bool hitPeriod=false;
             for(int di=0;di<depth;di++)depthProfile.push_back(std::vector<size_t>{});
             while(it!=s.end()){
+                std::span<char>::iterator currentIt=it;
                 if(isNull(s, it)){
                     vertices.push_back(jobject{.obj_type=VALUE_NULL, .id=vertices.size(), .value_index=std::string_view(it, it+4), .start=offset, .end=offset+4, .depth=depth});
                     if(depth>=depthProfile.size())depthProfile.push_back(std::vector<size_t>{});
@@ -397,6 +398,8 @@ namespace sylvanmats::io::json{
                         hitColon=false;
                         hitComma=false;
                     }
+                    ++it;
+                    offset++;
                     
                 }
                 else if((*it)=='-' || (*it)=='.' || ((*it)>='0' && (*it)<='9')){
@@ -433,9 +436,13 @@ namespace sylvanmats::io::json{
                 else if((*it)=='\\'){
                     ++it;
                     offset++;
+                    ++it;
+                    offset++;
                 }
-                ++it;
-                offset++;
+                if(std::distance(currentIt, it)==0){
+                    ++it;
+                    offset++;
+                }
             }
             /*for(std::vector<std::vector<size_t>>::iterator it=depthProfile.begin();it!=depthProfile.end();it++){
                 std::cout<<(std::distance(depthProfile.begin(), it))<<std::endl;
