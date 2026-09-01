@@ -118,11 +118,11 @@ namespace sylvanmats::io::json{
         };
         
         element& front(){
-            return (n>0)? buffer[0] : element{};
+            return this->p[0];
         };
 
         element& back(){
-            return (n>0)? buffer[n-1] : element{};
+            return this->p[this->n-1];
         };
         
         iterator<element> begin(){ return iterator<element>(buffer);};
@@ -133,7 +133,7 @@ namespace sylvanmats::io::json{
 
         const iterator<element> cend() const { return iterator<element>(buffer+n);};
         
-        element::size_type size(){return n;};
+        element::size_type size(){return (n>p.size())? n : p.size();};
         
         element::size_type max_size(){return std::numeric_limits<element::size_type>::max() / sizeof(element);};//std::allocator_traits<std::allocator<element>>::max_size;};
         

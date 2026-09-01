@@ -315,6 +315,8 @@ TEST_CASE("test reading package.json") {
         CHECK_EQ(currentPackageName, "json-thresher");
         sylvanmats::io::json::Path type;
         type["devDependencies"];
+        CHECK_EQ(type.size(), 1);
+        CHECK_EQ(type.front().label, "devDependencies");
         size_t count=0;
         jsonBinder(type, [&count](std::string_view& key, std::any& v){
             if(count==0 && v.type() == typeid(std::string_view)) {
