@@ -4,20 +4,23 @@ ifeq ($(OS),Windows_NT)
   ext=dll
   libprefix=
 endif
-LD=ld.exe
+LD       := ld.exe
+AR       := ar
+ARFLAGS  := rcs
 
 OPT_FLAGS ?= -O3
 MODULE_DIRECTORY ?= ./cpp_modules
 
 all: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -pthread -std=c++26  -Iinclude -MMD 
-all: LDFLAGS= -shared  -Wl,--allow-multiple-definition -L`pwd` 
+all: LDFLAGS= -Wl,--allow-multiple-definition -L`pwd` 
 ifeq ($(OS),Windows_NT)
 all: LDFLAGS=" -Wl,--export-all-symbols ${LDFLAGS}"
 endif
 all: build/src/io/json/Path.o  build/src/io/json/Binder.o
 	@mkdir -p $(@D)
 	#ld --help
-	$(CXX) $(LDFLAGS) -o $(libprefix)jsonthresher.$(ext) $(wildcard build/src/io/json/*.o) 
+	$(CXX)  -shared $(LDFLAGS) -o $(libprefix)jsonthresher.$(ext) $(wildcard build/src/io/json/*.o) 
+	$(AR) $(ARFLAGS) $(libprefix)jsonthresher.a $(wildcard build/src/io/json/*.o) 
 
 build/src/io/json/Path.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fPIC -pthread -std=c++26 -Iinclude -Isrc -MMD
 build/src/io/json/Path.o: src/io/json/Path.cpp 

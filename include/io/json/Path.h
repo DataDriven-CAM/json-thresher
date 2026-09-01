@@ -117,6 +117,14 @@ namespace sylvanmats::io::json{
             
         };
         
+        element& front(){
+            return buffer[0];
+        };
+
+        element& back(){
+            return buffer[n-1];
+        };
+        
         iterator<element> begin(){ return iterator<element>(buffer);};
 
         iterator<element> end(){ return iterator<element>(buffer+n);};
