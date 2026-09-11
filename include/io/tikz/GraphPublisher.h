@@ -60,8 +60,8 @@ namespace sylvanmats::io::tikz{
                     tree.append(" -> ");
                     if(depth<dfs.depth() && size(graph::views::incidence(jsonBinder.dagGraph, vid))>1 && visited[vid]==0)tree.append("{");
                     tree.append("\"");
-                    if(wValue.obj_type==sylvanmats::io::json::PAIR_KEY){
-                        std::string pairKeyName(substr_view(jsonBinder.jsonContent, wValue.start, wValue.end));
+                    if(wValue.obj_type==sylvanmats::io::json::PAIR_VALUE){
+                        std::string pairKeyName(wValue.key);
                         size_t pos=std::string::npos;
                         while ((pos = pairKeyName.find("_")) != std::string::npos) {
                             pairKeyName.replace(pos, 1, R"(-)");

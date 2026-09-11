@@ -23,7 +23,7 @@
 inline const std::string_view substr_view(const std::string& source, size_t offset = 0,
                 std::string_view::size_type count = 
                 std::numeric_limits<std::string_view::size_type>::max()) {
-    if (offset < source.size()) 
+    if (offset < source.size()&& count>0) 
         return std::string_view(source.data() + offset, count - offset);
     return {};
 }
@@ -31,11 +31,10 @@ inline const std::string_view substr_view(const std::string& source, size_t offs
 namespace sylvanmats::io::json{
 
     enum OBECT_TYPE{
-        END_OBJ,
-        START_OBJ,
-        END_ARRAY,
-        START_ARRAY,
-        PAIR_KEY,
+        JSON_OBJECT,
+        JSON_ARRAY,
+        JSON_STRING,
+        VALUE,
         PAIR_VALUE,
         VALUE_NULL
     };
@@ -43,11 +42,13 @@ namespace sylvanmats::io::json{
     struct jobject{
         OBECT_TYPE obj_type;
         size_t id;
+        size_t parent_id;
         size_t key_index=0;
         std::any value_index;
         size_t start=0;
         size_t end=0;
         size_t depth=0;
+        std::string_view key{};
     };
 
     using G = graph::container::compressed_graph<int, sylvanmats::io::json::jobject>;
@@ -69,8 +70,8 @@ namespace sylvanmats::io::json{
         G dagGraph;
         std::vector<sylvanmats::io::json::jobject> vertices;
         std::vector<std::tuple<graph::vertex_id_t<G>, graph::vertex_id_t<G>, int>> edges;
-        std::stack<size_t> associates;
-        std::vector<std::vector<size_t>> depthProfile;
+        std::vector<size_t> parentStack;
+        size_t maxStackSize=0;
 
         size_t objectCount=0;
         
@@ -89,7 +90,6 @@ namespace sylvanmats::io::json{
             if(dagGraph.size()>0)dagGraph.clear();
             if(vertices.size()>0)vertices.clear();
             if(edges.size()>0)edges.clear();
-            while(associates.size()>0)associates.pop();
             if(matchTime>0)matchTime=0;
             if(reductionTime>0)reductionTime=0;
             if(bindTime>0)bindTime=0;
@@ -130,7 +130,7 @@ namespace sylvanmats::io::json{
         size_t countObjects(){
             objectCount=0;
             for(auto& n:  vertices)
-                if(n.obj_type==START_OBJ)objectCount++;
+                if(n.obj_type==JSON_OBJECT)objectCount++;
             return objectCount;
         };
         
@@ -140,55 +140,55 @@ namespace sylvanmats::io::json{
         void shortenDAG(std::string::size_type insertionOffset, std::string::size_type offset);
         void bind(std::string::size_type offset, size_t depth=0);
         
-        size_t bisect(size_t currentDepth, size_t target, bool& hit){
-            std::vector<size_t>& depthVector=depthProfile[currentDepth];
-            int low = 0;
-            int high = depthVector.size() - 1;
+        // size_t bisect(size_t currentDepth, size_t target, bool& hit){
+        //     std::vector<size_t>& depthVector=depthProfile[currentDepth];
+        //     int low = 0;
+        //     int high = depthVector.size() - 1;
 
-            if (target < depthVector[low]) {
-                return 0; // Target is below the range of depthVector
-            }
+        //     if (target < depthVector[low]) {
+        //         return 0; // Target is below the range of depthVector
+        //     }
 
-            while (low <= high) {
-                int mid = low + (high - low) / 2;
+        //     while (low <= high) {
+        //         int mid = low + (high - low) / 2;
 
-                if (depthVector[mid] < target) {
-                    low = mid + 1;
-                } else {
-                    high = mid - 1;
-                }
-            }
+        //         if (depthVector[mid] < target) {
+        //             low = mid + 1;
+        //         } else {
+        //             high = mid - 1;
+        //         }
+        //     }
 
-            // If the target is smaller than all elements, return -1
-            if(high >= 0) hit=true;
-            return high >= 0 ? depthVector[high] : 0; 
-        };
+        //     // If the target is smaller than all elements, return -1
+        //     if(high >= 0) hit=true;
+        //     return high >= 0 ? depthVector[high] : 0; 
+        // };
         
-        size_t bisect(size_t currentDepth, OBECT_TYPE objType, size_t target, bool& hit){
-            std::vector<size_t>& depthVector=depthProfile[currentDepth];
-            int low = 0;
-            int high = depthVector.size() - 1;
+        // size_t bisect(size_t currentDepth, OBECT_TYPE objType, size_t target, bool& hit){
+        //     std::vector<size_t>& depthVector=depthProfile[currentDepth];
+        //     int low = 0;
+        //     int high = depthVector.size() - 1;
 
-            if (target < depthVector[low]) {
-                return 0; // Target is below the range of depthVector
-            }
+        //     if (target < depthVector[low]) {
+        //         return 0; // Target is below the range of depthVector
+        //     }
 
-            while (low <= high) {
-                int mid = low + (high - low) / 2;
+        //     while (low <= high) {
+        //         int mid = low + (high - low) / 2;
 
-                if (depthVector[mid] >= target) {
-                    high = mid - 1;
-                    while(high>0 && vertices[depthVector[high]].obj_type==objType)high--;
-                    //if(low>high)
-                } else {
-                    low = mid + 1;
-                }
-            }
+        //         if (depthVector[mid] >= target) {
+        //             high = mid - 1;
+        //             while(high>0 && vertices[depthVector[high]].obj_type==objType)high--;
+        //             //if(low>high)
+        //         } else {
+        //             low = mid + 1;
+        //         }
+        //     }
 
-            // If the target is smaller than all elements, return -1
-            if(high >= 0) hit=true;
-            return high >= 0 ? depthVector[high] : 0; 
-        };
+        //     // If the target is smaller than all elements, return -1
+        //     if(high >= 0) hit=true;
+        //     return high >= 0 ? depthVector[high] : 0; 
+        // };
 
         bool isNull(std::span<char>& s, std::span<char>::iterator& it);
 

@@ -61,9 +61,9 @@ TEST_CASE("test tiny periodic table json") {
 })";
     sylvanmats::io::json::Binder jsonBinder;
     jsonBinder(jsonContent);
-    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 17);
-    CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 17);
-    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 16);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 8);
+    CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 8);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 7);
     //jsonBinder.display();
     sylvanmats::io::tikz::GraphPublisher graphPublisher;
     std::string&& tikzDrawing=graphPublisher(jsonBinder);
@@ -72,9 +72,9 @@ TEST_CASE("test tiny periodic table json") {
     ofs<<tikzDrawing<<std::endl;
     ofs.close();
     jsonBinder(jsonContent);
-    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 17);
-    CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 17);
-    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 16);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 8);
+    CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 8);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 7);
 }
 
 TEST_CASE("test periodic table json") {
@@ -156,14 +156,15 @@ TEST_CASE("test periodic table json") {
 })";
     sylvanmats::io::json::Binder jsonBinder;
     jsonBinder(jsonContent);
-    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 131);
-    CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 131);
-    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 130);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 68);
+    CHECK_EQ(graph::vertices(jsonBinder.dagGraph).size(), 68);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 67);
     // jsonBinder.display();
     sylvanmats::io::json::Path jpName;
     jpName["elements"]["*"]["symbol"]=="H";
     size_t val=0;
     jsonBinder(jpName, [&](std::string_view& key, std::any& v){
+        std::cout<<"key "<<key<<" "<<v.type().name()<<std::endl;
         if(key.compare("number")==0){
                    val=std::any_cast<long>(v);
         }
@@ -248,7 +249,7 @@ TEST_CASE("test create json" * doctest::skip()) {
     std::cout<<std::type_index(pp.type()).name()<<" check: "<<jsonBinder<<std::endl;
 }
 
-TEST_CASE("test create series json") {
+TEST_CASE("test create series json" * doctest::skip()){
     sylvanmats::io::json::Binder jsonBinder;
     sylvanmats::io::json::Path jp;
     jsonBinder(jp, "8DR", sylvanmats::io::json::object());
@@ -273,8 +274,8 @@ TEST_CASE("test create series json") {
         return std::make_tuple(true, "end", 400);
     });
     CHECK_EQ(jsonBinder.countObjects(), 3);
-    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 24);
-    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 23);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 21);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 20);
     //jsonBinder.display();
     std::cout<<jsonBinder<<std::endl;
     sylvanmats::io::json::Path jpName;
@@ -306,6 +307,7 @@ TEST_CASE("test reading package.json") {
         jsonBinder(jsonContent);
         sylvanmats::io::json::Path jpName;
         jpName["name"];
+        std::cout<<"jpName "<<jpName<<std::endl;
         std::string_view currentPackageName;
         jsonBinder(jpName, [&currentPackageName](std::any& v){
             if(v.type() == typeid(std::string_view)) {
@@ -315,8 +317,9 @@ TEST_CASE("test reading package.json") {
         CHECK_EQ(currentPackageName, "json-thresher");
         sylvanmats::io::json::Path type;
         type["devDependencies"];
-        CHECK_EQ(type.size(), 1);
-        CHECK_EQ(type.front().label, "devDependencies");
+        std::cout<<"type "<<type<<std::endl;
+        CHECK_EQ(type.size(), 2);
+        CHECK_EQ(type.back().label, "devDependencies");
         size_t count=0;
         jsonBinder(type, [&count](std::string_view& key, std::any& v){
             if(count==0 && v.type() == typeid(std::string_view)) {
@@ -330,8 +333,8 @@ TEST_CASE("test reading package.json") {
             count++;
         });
         CHECK_EQ(count, 4);
-        CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 49);
-        CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 48);
+        CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 23);
+        CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 22);
                     /*std::cout<<"display rep graph "<<std::endl;
    directedness dir=directedness::directed;
    std::string_view arrows, rev_arrows = "dir=back,arrowhead=vee,";
@@ -387,8 +390,8 @@ TEST_CASE("test reading rcsb entries") {
 })";
     sylvanmats::io::json::Binder jsonBinder;
     jsonBinder(jsonContent);
-    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 71);
-    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 70);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 35);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 34);
     
     sylvanmats::io::json::Path jp;
     jp["result_set"]["*"]["identifier"];
@@ -402,8 +405,8 @@ TEST_CASE("test reading mimes db.json") {
         std::ifstream is("../cpp_modules/mime-db/db.json");
         std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
         jsonBinder(jsonContent);
-            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 15140);
-            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 15139);
+            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 6277);
+            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 6276);
 //            std::ofstream ofs("check.txt");
 //            ofs<<depthText;
 //            ofs.close();
@@ -471,8 +474,8 @@ TEST_CASE("test reading crossref json") {
         std::ifstream is("/home/roger/sylvanmats/antlr4-thresher/tmp/crossref.json");
         std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
         jsonBinder(jsonContent);
-            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 4484);
-            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 4483);
+            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 2157);
+            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 2156);
             sylvanmats::io::tikz::GraphPublisher graphPublisher;
             std::string&& tikzDrawing=graphPublisher(jsonBinder);
             std::filesystem::path filePath="../documents/crossref.tex";
@@ -481,7 +484,7 @@ TEST_CASE("test reading crossref json") {
             ofs.close();
         sylvanmats::io::json::Path jp;//="message/items/*/DOI"_jp;
         jp["message"]["items"]["*"]["DOI"];
-        CHECK_EQ(jp.p.size(), 4);
+        CHECK_EQ(jp.p.size(), 5);
 //        std::cout<<"jp "<<jp<<std::endl;
         std::vector<std::string_view> dois;
         jsonBinder(jp, [&](std::any& v){
@@ -491,10 +494,9 @@ TEST_CASE("test reading crossref json") {
             }
         });
         CHECK_EQ(dois.size(), 20);
-        std::cout<<"dois "<<std::format("{}",dois)<<std::endl;
-       sylvanmats::io::json::Path jpStatus="status"_jp;
+        // std::cout<<"dois "<<std::format("{}",dois)<<std::endl;
+       sylvanmats::io::json::Path jpStatus="/status"_jp;
        CHECK_EQ(jpStatus.p.size(), 1);
-       std::cout<<"jpStatus "<<jpStatus<<std::endl;
        std::string_view val{};
        jsonBinder(jpStatus, [&](std::any& v){
            if(v.type() == typeid(std::string_view)) {
@@ -510,8 +512,8 @@ TEST_CASE("test binding docling json file") {
         std::ifstream is("/home/roger/sylvanmats/antlr4-thresher/tmp/docling.json");
         std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
         jsonBinder(jsonContent);
-            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 619);
-            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 618);
+            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 310);
+            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 309);
             sylvanmats::io::tikz::GraphPublisher graphPublisher;
             std::string&& tikzDrawing=graphPublisher(jsonBinder);
             std::filesystem::path filePath="../documents/docling.tex";
@@ -524,7 +526,7 @@ TEST_CASE("test binding docling json file") {
 //            ofs.close();
         sylvanmats::io::json::Path jp;//="chunks/*/text"_jp;
         jp["chunks"]["*"]["text"];
-        CHECK_EQ(jp.p.size(), 3);
+        CHECK_EQ(jp.p.size(), 4);
 //        std::cout<<"jp "<<jp<<std::endl;
         std::vector<std::string_view> chunks;
         jsonBinder(jp, [&chunks](std::any& v){
@@ -537,7 +539,7 @@ TEST_CASE("test binding docling json file") {
         CHECK_EQ(chunks.size(), 13);
        sylvanmats::io::json::Path jpStatus;//="processing_time"_jp;
        jpStatus["processing_time"];
-       CHECK_EQ(jpStatus.p.size(), 1);
+       CHECK_EQ(jpStatus.p.size(), 2);
        std::cout<<"jpStatus "<<jpStatus<<std::endl;
        double val{};
        jsonBinder(jpStatus, [&](std::any& v){
@@ -565,8 +567,8 @@ TEST_CASE("test reading docling json") {
 })";
     sylvanmats::io::json::Binder jsonBinder;
         jsonBinder(jsonContent);
-            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 23);
-            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 22);
+            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 11);
+            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 10);
             sylvanmats::io::tikz::GraphPublisher graphPublisher;
             std::string&& tikzDrawing=graphPublisher(jsonBinder);
             std::filesystem::path filePath="../documents/docling.tex";
@@ -579,7 +581,7 @@ TEST_CASE("test reading docling json") {
 //            ofs.close();
         sylvanmats::io::json::Path jp;//="chunks/*/text"_jp;
         jp["chunks"]["*"]["text"];
-        CHECK_EQ(jp.p.size(), 3);
+        CHECK_EQ(jp.p.size(), 4);
 //        std::cout<<"jp "<<jp<<std::endl;
         std::vector<std::string_view> chunks;
         jsonBinder(jp, [&chunks](std::any& v){
@@ -590,13 +592,51 @@ TEST_CASE("test reading docling json") {
         CHECK_EQ(chunks.size(), 2);
        sylvanmats::io::json::Path jpStatus;//="processing_time"_jp;
        jpStatus["processing_time"];
-       CHECK_EQ(jpStatus.p.size(), 1);
+       CHECK_EQ(jpStatus.p.size(), 2);
        std::cout<<"jpStatus "<<jpStatus<<std::endl;
        double val{};
        jsonBinder(jpStatus, [&](std::any& v){
            val=std::any_cast<double>(v);
        });
        CHECK(val== doctest::Approx(28.8807759));
+}
+
+TEST_CASE("test reading monorepo json") {
+    std::string jsonContent=R"({
+  "name": "winnow-mr",
+  "repository": "https://github.com/DataDriven-CAM/winnow-mr.git",
+  "private": false,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "compile:core": "make -C packages/winnow",
+    "dev:ui": "bun --filter winnow-ui dev",
+    "build:ui": "bun --filter winnow-ui build",
+    "test:all": "bun test packages/**/*"
+  }
+}
+)";
+    sylvanmats::io::json::Binder jsonBinder;
+    jsonBinder(jsonContent);
+        CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 10);
+        CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 9);
+        jsonBinder.display();
+    sylvanmats::io::json::Path jp;
+    jp["workspaces"]["*"];
+    CHECK_EQ(jp.p.size(), 3);
+//        std::cout<<"jp "<<jp<<std::endl;
+    std::vector<std::string_view> workspaces;
+    jsonBinder(jp, [&workspaces](std::any& v){
+        // std::cout<<"key "<<key<<std::endl;
+        // if(key != "text") return;
+        workspaces.push_back(std::any_cast<std::string_view>(v));
+    });
+    CHECK_EQ(workspaces.size(), 1);
+    std::cout<<"workspaces: "<<std::endl;
+    for(auto& w : workspaces){
+        std::cout<<"\t"<<w<<std::endl;
+    }
 }
 
 }

@@ -122,7 +122,7 @@ namespace sylvanmats::io::json{
         };
 
         element& back(){
-            return this->p[this->n-1];
+            return this->p[this->p.size()-1];
         };
         
         iterator<element> begin(){ return iterator<element>(buffer);};
@@ -206,14 +206,23 @@ namespace sylvanmats::io::json{
             return *this;
         }
         
+        Path& operator[](const char* s){
+            std::string ss(s);
+            this->operator[](ss);
+            return *this;
+        }
+        
         Path& operator[](std::string s){
 //            std::string s(c);
+            if(this->p.empty()){
+                this->p.push_back({.label="/", .action=NOP});
+            }
             size_t offset=s.find("=");
             if(s.at(0)=='@' && offset!=std::string::npos){
                 this->ts.emplace_back(std::string(s.substr(offset+1)));
                 this->p.push_back({.label=std::string(s.substr(1, offset-1)), .action=TEST, .value=std::any_cast<std::string_view>(this->ts.back())});
             }
-            else if(s.size()==1 && s.at(0)=='*'){
+            else if(s.size()==1 && (s.at(0)=='*' || s.at(0)=='[')){
                 this->p.push_back({.label=s, .action=ARRAY});            
             }
             else{
@@ -222,7 +231,7 @@ namespace sylvanmats::io::json{
             return *this;
         }
         
-        Path& operator[](std::vector<element> p[]){
+        Path& operator[](std::vector<element> p){
             //this->p.insert(this->p.end(), p.begin(), p.end());
             return *this;
         }
@@ -277,12 +286,12 @@ namespace sylvanmats::io::json{
         for(auto p : tp.p){
             if(p.action==TEST){
                 if(p.value.has_value() && tp.type_names[std::type_index(p.value.type())].compare("long")==0)
-                    s <<"/"<< p.label<<" == "<<std::any_cast<long>(p.value);
+                    s <<((p.label.compare("/")!=0) ? "/" :"")<< p.label<<" == "<<std::any_cast<long>(p.value);
                 else
-                    s <<"/"<< p.label<<" == "<<std::any_cast<std::string_view>(p.value);
+                    s <<((p.label.compare("/")!=0) ? "/" :"")<< p.label<<" == "<<std::any_cast<std::string_view>(p.value);
             }
             else
-                s <<"/"<< p.label;
+                s <<((p.label.compare("/")!=0) ? "/" :"")<< p.label;
         }
           return s;
         }

@@ -9,6 +9,7 @@
 
 namespace sylvanmats::io::json{
     Path::Path(const char* c){
+        std::cout<<"in this char* path construct "<<c<<std::endl;
         std::string pathRespresentation(c);
         constexpr std::string_view delim{"/"};
         std::ranges::split_view splitting(pathRespresentation, delim);
