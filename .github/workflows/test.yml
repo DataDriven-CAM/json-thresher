@@ -1,0 +1,52 @@
+name: Build and Test json thresher
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js Environment
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm' # Automatically caches node_modules dependencies
+
+    - name: Install Toolchain and Global Packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc-14 g++-14 libstdc++-14-dev
+        # Install cnpm globally to mirror your package.json workflow
+        npm install -g cnpm
+
+    - name: Install Project Dependencies
+      run: |
+        # Resolves all dependencies specified in the root package.json
+        npm install
+
+    - name: Set Compiler Environment Variables
+      run: |
+        echo "CC=gcc-14" >> $GITHUB_ENV
+        echo "CXX=g++-14" >> $GITHUB_ENV
+
+    - name: Build Core Library (Root Makefile)
+      run: |
+        make
+
+    - name: Build doctest Binary (Test Directory Makefile)
+      run: |
+        cd test
+        make
+
+    - name: Run Test Suite via cnpm
+      run: |
+        # Executes the package.json test script directly via cnpm
+        npm test

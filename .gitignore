@@ -38,5 +38,4 @@ cpp_modules/
 /documents/*.out
 /documents/*.pdf
 /documents/*.gz
-test/examples/
 test/test

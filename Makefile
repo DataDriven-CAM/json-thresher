@@ -11,6 +11,9 @@ ARFLAGS  := rcs
 OPT_FLAGS ?= -O3
 MODULE_DIRECTORY ?= ./cpp_modules
 
+-include build/src/io/json/Binder.d
+-include build/src/io/json/Path.d
+
 all: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -pthread -std=c++26  -I./include -MMD 
 all: LDFLAGS= -Wl,--allow-multiple-definition -L`pwd` 
 ifeq ($(OS),Windows_NT)

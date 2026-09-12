@@ -13,7 +13,7 @@
 #include "io/json/Binder.h"
 #include "io/tikz/GraphPublisher.h"
 
-#include "graph/container/compressed_graph.hpp"
+#include "graph/container/dynamic_graph.hpp"
 #include "graph/views/incidence.hpp"
 #include "graph/views/vertexlist.hpp"
 
@@ -36,13 +36,14 @@ TEST_CASE("test meta of typing") {
   jsonBinder(jsonContent);
   CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 13);
   CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 12);
-  jsonBinder.display();
+  // jsonBinder.display();
   sylvanmats::io::json::Path jp;
   jp["geometry"]["*"];
   std::vector<double> geometry;
-  jsonBinder(jp, [&geometry](std::any& v){
-    std::cout<<"type: "<<v.type().name()<<std::endl;
-    geometry.push_back(std::any_cast<double>(v));
+  jsonBinder(jp, [&geometry](const sylvanmats::io::json::JsonValue& v){
+    if (auto pVal = std::get_if<double>(&v)) {
+        geometry.push_back(*pVal);
+    }
   });
   CHECK_EQ(geometry.size(), 3);
   if(geometry.size()==3){

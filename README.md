@@ -1,6 +1,8 @@
+[![Test Status](https://github.com/DataDriven-CAM/json-thresher/actions/workflows/test.yml/badge.svg)](https://github.com/DataDriven-CAM/json-thresher/actions/workflows/test.yml)
+
 # json-thresher
 C++ json binder: designed for the language advantages and getting directly to what a user may want out of the json. Getting faster. Path matching is now ~0.002 secs in large object arrays(~2.44Mb).
-The initial binding step is getting fast; only a dag edge sort is taking 5 secs on the ~2.44Mb json. Hope to eliminate as I learn more how to setup a [graph-v3](https://github.com/stdgraph/graph-v3.git) container graph.
+The initial binding step is getting fast; only a dag edge sort is taking 5 secs on the ~2.44Mb json. Hope to eliminate as I learn more how to setup a [graph-v3](https://github.com/stdgraph/graph-v3.git) dynamic adjacency graph.
 
 ## To build and test
 
@@ -30,8 +32,10 @@ cnpm test
         jpName["name"];
         std::string_view currentPackageName;
         //the get operator
-        jsonBinder(jpName, [&currentPackageName](std::any& v){
-            currentPackageName=std::any_cast<std::string_view>(v);
+        jsonBinder(jpName, [&currentPackageName](const sylvanmats::io::json::JsonValue& v){
+            if (auto pVal = std::get_if<std::string_view>(&v)) {
+                currentPackageName=*pVal;
+            }
         });
 ```
 finds the package name; currentPackageName should equal "json-thresher".
@@ -64,7 +68,7 @@ generates a json:
 
 ```
 matches any object in the elements array where symbol is C; and from periodic table [Periodic-Table-JSON](https://github.com/Bowserinator/Periodic-Table-JSON.git) 
-and traverses all value pairs for the element by ```jsonBinder(jpSymbol, [&](std::string_view& key, std::any& v){});```.  
+and traverses all value pairs for the element by ```jsonBinder(jpSymbol, [&](std::string_view& key, const sylvanmats::io::json::JsonValue& v){});```.  
 
 For traversing an object with a child value pair "start": 1001, 
 ```

@@ -14,6 +14,7 @@
 #include "io/tikz/GraphPublisher.h"
 
 #include "graph/container/compressed_graph.hpp"
+#include "graph/container/dynamic_graph.hpp"
 #include "graph/views/incidence.hpp"
 #include "graph/views/vertexlist.hpp"
 
@@ -163,19 +164,20 @@ TEST_CASE("test periodic table json") {
     sylvanmats::io::json::Path jpName;
     jpName["elements"]["*"]["symbol"]=="H";
     size_t val=0;
-    jsonBinder(jpName, [&](std::string_view& key, std::any& v){
-        std::cout<<"key "<<key<<" "<<v.type().name()<<std::endl;
-        if(key.compare("number")==0){
-                   val=std::any_cast<long>(v);
+    jsonBinder(jpName, [&](std::string_view key, const sylvanmats::io::json::JsonValue& v){
+        if (auto pVal = std::get_if<long>(&v)) {
+            val=*pVal;
         }
     });
     CHECK_EQ(val, 1);
     sylvanmats::io::json::Path jpNameC;
     jpNameC["elements"]["*"]["symbol"]=="C";
     val=0;
-    jsonBinder(jpNameC, [&](std::string_view& key, std::any& v){
+    jsonBinder(jpNameC, [&](std::string_view key, const sylvanmats::io::json::JsonValue& v){
         if(key.compare("number")==0){
-                   val=std::any_cast<long>(v);
+            if (auto pVal = std::get_if<long>(&v)) {
+                val=*pVal;
+            }
         }
     });
     CHECK_EQ(val, 6);
@@ -189,115 +191,117 @@ TEST_CASE("test periodic table json") {
 }
 
 TEST_CASE("test create json" * doctest::skip()) {
-    sylvanmats::io::json::Binder jsonBinder;
-    sylvanmats::io::json::Path jp;
-    jsonBinder(jp, "8DR", sylvanmats::io::json::object());
-    CHECK_EQ(jsonBinder.countObjects(), 2);
-    std::cout<<jsonBinder<<std::endl;
-    jp["8DR"];
-    jsonBinder(jp, "start", 100);
-    CHECK_EQ(jsonBinder.countObjects(), 2);
-//    jsonBinder.display();
-    std::cout<<jsonBinder<<std::endl;
-//    jsonBinder(jp, "end", 200);
-//    std::cout<<jsonBinder<<std::endl;
-    sylvanmats::io::json::Path jp2;
-    jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
-    CHECK_EQ(jsonBinder.countObjects(), 3);
-//    jsonBinder.display();
-//    std::cout<<jsonBinder<<std::endl;
-    jp2["CGU"];
-    jsonBinder(jp2, "start", 300);
-    std::cout<<"check: "<<jsonBinder<<std::endl;
-    jsonBinder(jp2, "end", 400);
-    jsonBinder(jp, "end", 200);
-    sylvanmats::io::json::Path jp3;
-    jsonBinder(jp3, "000", sylvanmats::io::json::object());
-//    std::cout<<jsonBinder<<std::endl;
-    jp3["000"];
-    jsonBinder(jp3, "start", 1);
-//    jsonBinder.display();
-//    std::cout<<"check: "<<jsonBinder<<std::endl;
-    jsonBinder(jp3, "end", 50);
-    sylvanmats::io::json::Path jp4;
-    jsonBinder(jp4, "001", sylvanmats::io::json::object());
-//    std::cout<<jsonBinder<<std::endl;
-    jp4["001"];
-    jsonBinder(jp4, "start", 51);
-//    jsonBinder.display();
-    std::cout<<"check: "<<jsonBinder<<std::endl;
-    jsonBinder(jp4, "end", 99);
-////    //jsonBinder.display();
-    std::cout<<jsonBinder<<std::endl;
-    CHECK_EQ(jsonBinder.countObjects(), 5);
-    sylvanmats::io::json::Path jp5=Root();
-////    jp3["8DR"];
-////    std::cout<<"jp3 "<<jp3<<std::endl;
-    //remove 8DR
-    jsonBinder(jp5, "8DR");
-    std::cout<<jsonBinder<<std::endl;
-    CHECK_EQ(jsonBinder.countObjects(), 4);
-    sylvanmats::io::json::Path jp6;
-    jsonBinder(jp6, "8DR", sylvanmats::io::json::object());
-//    std::cout<<jsonBinder<<std::endl;
-    jp6["8DR"];
-    jsonBinder(jp6, "start", 100u);
-//    jsonBinder.display();
-    unsigned long p=200u;
-    std::any pp=p;
-    jsonBinder(jp6, "end", pp);
-    std::cout<<std::type_index(pp.type()).name()<<" check: "<<jsonBinder<<std::endl;
+//     sylvanmats::io::json::Binder jsonBinder;
+//     sylvanmats::io::json::Path jp;
+//     jsonBinder(jp, "8DR", sylvanmats::io::json::object());
+//     CHECK_EQ(jsonBinder.countObjects(), 2);
+//     std::cout<<jsonBinder<<std::endl;
+//     jp["8DR"];
+//     jsonBinder(jp, "start", 100);
+//     CHECK_EQ(jsonBinder.countObjects(), 2);
+// //    jsonBinder.display();
+//     std::cout<<jsonBinder<<std::endl;
+// //    jsonBinder(jp, "end", 200);
+// //    std::cout<<jsonBinder<<std::endl;
+//     sylvanmats::io::json::Path jp2;
+//     jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
+//     CHECK_EQ(jsonBinder.countObjects(), 3);
+// //    jsonBinder.display();
+// //    std::cout<<jsonBinder<<std::endl;
+//     jp2["CGU"];
+//     jsonBinder(jp2, "start", 300);
+//     std::cout<<"check: "<<jsonBinder<<std::endl;
+//     jsonBinder(jp2, "end", 400);
+//     jsonBinder(jp, "end", 200);
+//     sylvanmats::io::json::Path jp3;
+//     jsonBinder(jp3, "000", sylvanmats::io::json::object());
+// //    std::cout<<jsonBinder<<std::endl;
+//     jp3["000"];
+//     jsonBinder(jp3, "start", 1);
+// //    jsonBinder.display();
+// //    std::cout<<"check: "<<jsonBinder<<std::endl;
+//     jsonBinder(jp3, "end", 50);
+//     sylvanmats::io::json::Path jp4;
+//     jsonBinder(jp4, "001", sylvanmats::io::json::object());
+// //    std::cout<<jsonBinder<<std::endl;
+//     jp4["001"];
+//     jsonBinder(jp4, "start", 51);
+// //    jsonBinder.display();
+//     std::cout<<"check: "<<jsonBinder<<std::endl;
+//     jsonBinder(jp4, "end", 99);
+// ////    //jsonBinder.display();
+//     std::cout<<jsonBinder<<std::endl;
+//     CHECK_EQ(jsonBinder.countObjects(), 5);
+//     sylvanmats::io::json::Path jp5=Root();
+// ////    jp3["8DR"];
+// ////    std::cout<<"jp3 "<<jp3<<std::endl;
+//     //remove 8DR
+//     jsonBinder(jp5, "8DR");
+//     std::cout<<jsonBinder<<std::endl;
+//     CHECK_EQ(jsonBinder.countObjects(), 4);
+//     sylvanmats::io::json::Path jp6;
+//     jsonBinder(jp6, "8DR", sylvanmats::io::json::object());
+// //    std::cout<<jsonBinder<<std::endl;
+//     jp6["8DR"];
+//     jsonBinder(jp6, "start", 100u);
+// //    jsonBinder.display();
+//     unsigned long p=200u;
+//     sylvanmats::io::json::JsonValue pp=p;
+//     jsonBinder(jp6, "end", pp);
+//     std::cout<<std::type_index(pp.type()).name()<<" check: "<<jsonBinder<<std::endl;
 }
 
 TEST_CASE("test create series json" * doctest::skip()){
-    sylvanmats::io::json::Binder jsonBinder;
-    sylvanmats::io::json::Path jp;
-    jsonBinder(jp, "8DR", sylvanmats::io::json::object());
-    jp["8DR"];
-    size_t count=0;
-    jsonBinder(jp, [&jp, &count]()->std::tuple<bool, std::string_view, std::any>{
-        if(count==0){
-            count++;
-            return std::make_tuple(false, "start", 100);
-        }
-        return std::make_tuple(true, "end", 200);
-    });
-    sylvanmats::io::json::Path jp2;
-    jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
-    jp2["CGU"];
-    count=0;
-    jsonBinder(jp2, [&jp2, &count]()->std::tuple<bool, std::string_view, std::any>{
-        if(count==0){
-            count++;
-            return std::make_tuple(false, "start", 300);
-        }
-        return std::make_tuple(true, "end", 400);
-    });
-    CHECK_EQ(jsonBinder.countObjects(), 3);
-    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 21);
-    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 20);
-    //jsonBinder.display();
-    std::cout<<jsonBinder<<std::endl;
-    sylvanmats::io::json::Path jpName;
-    jpName["8DR"]["start"]==100l;
-    size_t val=0;
-    jsonBinder(jpName, [&val](std::string_view& key, std::any& v){
-        if(key.compare("end")==0 && v.type() == typeid(long)){
-            //std::cout<<"key "<<key<<" "<<v.type().name()<<std::endl;
-                   val=std::any_cast<long>(v);
-        }
-    });
-    CHECK_EQ(val, 200);
-    sylvanmats::io::json::Path jpName2;
-    jpName2["CGU"]["start"]==300l;
-    val=0;
-    jsonBinder(jpName2, [&val](std::string_view& key, std::any& v){
-        if(key.compare("end")==0 && v.type() == typeid(long)){
-            std::cout<<"key2 "<<key<<" "<<v.type().name()<<std::endl;
-                   val=std::any_cast<long>(v);
-        }
-    });
-    CHECK_EQ(val, 400);
+    // sylvanmats::io::json::Binder jsonBinder;
+    // sylvanmats::io::json::Path jp;
+    // jsonBinder(jp, "8DR", sylvanmats::io::json::object());
+    // jp["8DR"];
+    // size_t count=0;
+    // jsonBinder(jp, [&jp, &count]()->std::tuple<bool, std::string_view, const sylvanmats::io::json::JsonValue>{
+    //     if(count==0){
+    //         count++;
+    //         return std::make_tuple(false, "start", 100);
+    //     }
+    //     return std::make_tuple(true, "end", 200);
+    // });
+    // sylvanmats::io::json::Path jp2;
+    // jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
+    // jp2["CGU"];
+    // count=0;
+    // jsonBinder(jp2, [&jp2, &count]()->std::tuple<bool, std::string_view, const sylvanmats::io::json::JsonValue>{
+    //     if(count==0){
+    //         count++;
+    //         return std::make_tuple(false, "start", 300);
+    //     }
+    //     return std::make_tuple(true, "end", 400);
+    // });
+    // CHECK_EQ(jsonBinder.countObjects(), 3);
+    // CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 21);
+    // CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 20);
+    // //jsonBinder.display();
+    // std::cout<<jsonBinder<<std::endl;
+    // sylvanmats::io::json::Path jpName;
+    // jpName["8DR"]["start"]==100l;
+    // size_t val=0;
+    // jsonBinder(jpName, [&val](std::string_view key, const sylvanmats::io::json::JsonValue& v){
+    //     if(key.compare("end")==0){
+    //         if (auto pVal = std::get_if<long>(&v)) {
+    //             val=*pVal;
+    //         }
+    //     }
+    // });
+    // CHECK_EQ(val, 200);
+    // sylvanmats::io::json::Path jpName2;
+    // jpName2["CGU"]["start"]==300l;
+    // val=0;
+    // jsonBinder(jpName2, [&val](std::string_view key, const sylvanmats::io::json::JsonValue& v){
+    //     if(key.compare("end")==0){
+    //         if (auto pVal = std::get_if<long>(&v)) {
+    //             val=*pVal;
+    //         }
+    //     }
+    // });
+    // CHECK_EQ(val, 400);
 }
 
 TEST_CASE("test reading package.json") {
@@ -309,9 +313,9 @@ TEST_CASE("test reading package.json") {
         jpName["name"];
         std::cout<<"jpName "<<jpName<<std::endl;
         std::string_view currentPackageName;
-        jsonBinder(jpName, [&currentPackageName](std::any& v){
-            if(v.type() == typeid(std::string_view)) {
-                currentPackageName=std::any_cast<std::string_view>(v);
+        jsonBinder(jpName, [&currentPackageName](const sylvanmats::io::json::JsonValue& v){
+            if (auto pVal = std::get_if<std::string_view>(&v)) {
+                currentPackageName=*pVal;
             }
         });
         CHECK_EQ(currentPackageName, "json-thresher");
@@ -321,14 +325,18 @@ TEST_CASE("test reading package.json") {
         CHECK_EQ(type.size(), 2);
         CHECK_EQ(type.back().label, "devDependencies");
         size_t count=0;
-        jsonBinder(type, [&count](std::string_view& key, std::any& v){
-            if(count==0 && v.type() == typeid(std::string_view)) {
-                CHECK_EQ(key, "doctest");
-                CHECK_EQ(std::any_cast<std::string_view>(v), "onqtam/doctest");
+        jsonBinder(type, [&count](std::string_view key, const sylvanmats::io::json::JsonValue& v){
+            if(count==0){
+                if (auto pVal = std::get_if<std::string_view>(&v)) {
+                    CHECK_EQ(key, "doctest");
+                    CHECK_EQ(*pVal, "onqtam/doctest");
+                }
             }
-            else if(count==3 && v.type() == typeid(std::string_view)) {
-                CHECK_EQ(key, "json-graph-specification");
-                CHECK_EQ(std::any_cast<std::string_view>(v), "jsongraph/json-graph-specification");
+            else if(count==3){
+                if (auto pVal = std::get_if<std::string_view>(&v)) {
+                    CHECK_EQ(key, "json-graph-specification");
+                    CHECK_EQ(*pVal, "jsongraph/json-graph-specification");
+                }
             }
             count++;
         });
@@ -395,8 +403,10 @@ TEST_CASE("test reading rcsb entries") {
     
     sylvanmats::io::json::Path jp;
     jp["result_set"]["*"]["identifier"];
-    jsonBinder(jp, [&](std::any& v){
-        // std::cout<<"identifier"<<" "<<std::any_cast<std::string_view>(v)<<std::endl;
+    jsonBinder(jp, [&](const sylvanmats::io::json::JsonValue& v){
+        if (auto pVal = std::get_if<std::string_view>(&v)) {
+            // std::cout<<"identifier"<<" "<<*pVal<<std::endl;
+        }
     });
 }
 
@@ -414,7 +424,7 @@ TEST_CASE("test reading mimes db.json") {
         CHECK_EQ(jp.p.size(), 1);
 //        std::cout<<"jp "<<jp<<std::endl;
         std::vector<std::string> mimeNames;
-        jsonBinder(jp, [&](std::string_view& key, std::any& v){
+        jsonBinder(jp, [&](std::string_view key, const sylvanmats::io::json::JsonValue& v){
 //            std::cout<<"key "<<key<<std::endl;
             mimeNames.push_back(std::string(key.begin(), key.end()));
         });
@@ -424,15 +434,17 @@ TEST_CASE("test reading mimes db.json") {
             sylvanmats::io::json::Path jp2;
             jp2/jp2Str.c_str()/"extensions";
 //            std::cout<<"jp2 "<<jp2<<std::endl;
-            jsonBinder(jp2, [&](std::string_view& key, std::any& v){
+            jsonBinder(jp2, [&](std::string_view key, const sylvanmats::io::json::JsonValue& v){
 //                std::cout<<(*it)<<" "<<key<<std::endl;
             });
         }
 //        sylvanmats::io::json::Path jp="*/extensions"_jp;
 //        CHECK_EQ(jp.p.size(), 2);
 //        std::cout<<"jp "<<jp<<std::endl;
-//        jsonBinder(jp, [&](std::string_view& key, std::any& v){
-//            std::cout<<key<<" "<<std::any_cast<const char*>(v)<<std::endl;
+//        jsonBinder(jp, [&](std::string_view key, const sylvanmats::io::json::JsonValue& v){
+//            if (auto pVal = std::get_if<const char*>(&v)) {
+//                std::cout<<key<<" "<<*pVal<<std::endl;
+//            }
 //        });
         is.close();
 }
@@ -451,12 +463,16 @@ TEST_CASE("test component json" * doctest::skip()) {
     size_t start=0;
     size_t end=0;
     size_t count=0;
-        jsonBinder(jpName, [&start, &end, &count](std::string_view& key, std::any& v){
+        jsonBinder(jpName, [&start, &end, &count](std::string_view key, const sylvanmats::io::json::JsonValue& v){
             if(key.compare("start")==0){
-                start=std::any_cast<long>(v);
+                if (auto pVal = std::get_if<long>(&v)) {
+                    start=*pVal;
+                }
             }
             else if(key.compare("end")==0){
-                end=std::any_cast<long>(v);
+                if (auto pVal = std::get_if<long>(&v)) {
+                    end=*pVal;
+                }
             }
             count++;
         });
@@ -471,11 +487,11 @@ TEST_CASE("test component json" * doctest::skip()) {
 
 TEST_CASE("test reading crossref json") {
     sylvanmats::io::json::Binder jsonBinder;
-        std::ifstream is("/home/roger/sylvanmats/antlr4-thresher/tmp/crossref.json");
+        std::ifstream is("examples/crossref.json");
         std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
         jsonBinder(jsonContent);
-            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 2157);
-            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 2156);
+            CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 2179);
+            CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 2178);
             sylvanmats::io::tikz::GraphPublisher graphPublisher;
             std::string&& tikzDrawing=graphPublisher(jsonBinder);
             std::filesystem::path filePath="../documents/crossref.tex";
@@ -487,20 +503,20 @@ TEST_CASE("test reading crossref json") {
         CHECK_EQ(jp.p.size(), 5);
 //        std::cout<<"jp "<<jp<<std::endl;
         std::vector<std::string_view> dois;
-        jsonBinder(jp, [&](std::any& v){
-            // std::cout<<"key "<<key<<std::endl;
-            if(v.type() == typeid(std::string_view)) {
-            dois.push_back(std::any_cast<std::string_view>(v));
+        jsonBinder(jp, [&](const sylvanmats::io::json::JsonValue& v){
+            if (auto pVal = std::get_if<std::string_view>(&v)) {
+                dois.push_back(*pVal);
             }
         });
         CHECK_EQ(dois.size(), 20);
         // std::cout<<"dois "<<std::format("{}",dois)<<std::endl;
-       sylvanmats::io::json::Path jpStatus="/status"_jp;
-       CHECK_EQ(jpStatus.p.size(), 1);
+       sylvanmats::io::json::Path jpStatus;//="status"_jp;
+       jpStatus["status"];
+       CHECK_EQ(jpStatus.p.size(), 2);
        std::string_view val{};
-       jsonBinder(jpStatus, [&](std::any& v){
-           if(v.type() == typeid(std::string_view)) {
-           val=std::any_cast<std::string_view>(v);
+       jsonBinder(jpStatus, [&](const sylvanmats::io::json::JsonValue& v){
+           if (auto pVal = std::get_if<std::string_view>(&v)) {
+               val=*pVal;
            }
        });
        CHECK_EQ(val, "ok");
@@ -509,7 +525,7 @@ TEST_CASE("test reading crossref json") {
 
 TEST_CASE("test binding docling json file") {
     sylvanmats::io::json::Binder jsonBinder;
-        std::ifstream is("/home/roger/sylvanmats/antlr4-thresher/tmp/docling.json");
+        std::ifstream is("examples/docling.json");
         std::string jsonContent((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
         jsonBinder(jsonContent);
             CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 310);
@@ -529,11 +545,9 @@ TEST_CASE("test binding docling json file") {
         CHECK_EQ(jp.p.size(), 4);
 //        std::cout<<"jp "<<jp<<std::endl;
         std::vector<std::string_view> chunks;
-        jsonBinder(jp, [&chunks](std::any& v){
-            // std::cout<<"key "<<key<<std::endl;
-            // if(key != "text") return;
-            if(v.type() == typeid(std::string_view)) {
-                chunks.push_back(std::any_cast<std::string_view>(v));
+        jsonBinder(jp, [&chunks](const sylvanmats::io::json::JsonValue& v){
+            if (auto pVal = std::get_if<std::string_view>(&v)) {
+                chunks.push_back(*pVal);
             }
         });
         CHECK_EQ(chunks.size(), 13);
@@ -542,8 +556,10 @@ TEST_CASE("test binding docling json file") {
        CHECK_EQ(jpStatus.p.size(), 2);
        std::cout<<"jpStatus "<<jpStatus<<std::endl;
        double val{};
-       jsonBinder(jpStatus, [&](std::any& v){
-           val=std::any_cast<double>(v);
+       jsonBinder(jpStatus, [&](const sylvanmats::io::json::JsonValue& v){
+            if (auto pVal = std::get_if<double>(&v)) {
+                val=*pVal;
+            }
        });
        CHECK(val== doctest::Approx(28.8807759));
         is.close();
@@ -584,10 +600,10 @@ TEST_CASE("test reading docling json") {
         CHECK_EQ(jp.p.size(), 4);
 //        std::cout<<"jp "<<jp<<std::endl;
         std::vector<std::string_view> chunks;
-        jsonBinder(jp, [&chunks](std::any& v){
-            // std::cout<<"key "<<key<<std::endl;
-            // if(key != "text") return;
-            chunks.push_back(std::any_cast<std::string_view>(v));
+        jsonBinder(jp, [&chunks](const sylvanmats::io::json::JsonValue& v){
+            if (auto pVal = std::get_if<std::string_view>(&v)) {
+                chunks.push_back(*pVal);
+            }
         });
         CHECK_EQ(chunks.size(), 2);
        sylvanmats::io::json::Path jpStatus;//="processing_time"_jp;
@@ -595,8 +611,10 @@ TEST_CASE("test reading docling json") {
        CHECK_EQ(jpStatus.p.size(), 2);
        std::cout<<"jpStatus "<<jpStatus<<std::endl;
        double val{};
-       jsonBinder(jpStatus, [&](std::any& v){
-           val=std::any_cast<double>(v);
+       jsonBinder(jpStatus, [&](const sylvanmats::io::json::JsonValue& v){
+           if (auto pVal = std::get_if<double>(&v)) {
+               val=*pVal;
+           }
        });
        CHECK(val== doctest::Approx(28.8807759));
 }
@@ -621,16 +639,16 @@ TEST_CASE("test reading monorepo json") {
     jsonBinder(jsonContent);
         CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 10);
         CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 9);
-        jsonBinder.display();
+        // jsonBinder.display();
     sylvanmats::io::json::Path jp;
     jp["workspaces"]["*"];
     CHECK_EQ(jp.p.size(), 3);
 //        std::cout<<"jp "<<jp<<std::endl;
     std::vector<std::string_view> workspaces;
-    jsonBinder(jp, [&workspaces](std::any& v){
-        // std::cout<<"key "<<key<<std::endl;
-        // if(key != "text") return;
-        workspaces.push_back(std::any_cast<std::string_view>(v));
+    jsonBinder(jp, [&workspaces](const sylvanmats::io::json::JsonValue& v){
+        if (auto pVal = std::get_if<std::string_view>(&v)) {
+            workspaces.push_back(*pVal);
+        }
     });
     CHECK_EQ(workspaces.size(), 1);
     std::cout<<"workspaces: "<<std::endl;

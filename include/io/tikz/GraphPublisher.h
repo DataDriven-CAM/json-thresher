@@ -34,13 +34,13 @@ namespace sylvanmats::io::tikz{
             auto vlist = graph::views::vertexlist(jsonBinder.dagGraph);
             for (auto&& [uid, u] : graph::views::vertexlist(jsonBinder.dagGraph)) {
 //                auto uid=graph::vertex_id(jsonBinder.dagGraph, u);
-                if (visited[uid]>0 || size(graph::views::incidence(jsonBinder.dagGraph, uid))==0) {
+                if (visited[uid]>0 || graph::views::incidence(jsonBinder.dagGraph, uid).size()==0) {
                   continue;
                 }
                 visited[uid]++;
                 auto uValue=graph::vertex_value(jsonBinder.dagGraph, *graph::find_vertex(jsonBinder.dagGraph, uid));
                 tree.append(std::to_string(uValue.id));
-                if(size(graph::views::incidence(jsonBinder.dagGraph, uid))>1)tree.append("{");
+                if(graph::views::incidence(jsonBinder.dagGraph, uid).size()>1)tree.append("{");
                 auto dfs=graph::views::edges_dfs(jsonBinder.dagGraph, uid);
                 size_t depth=dfs.depth();
                 size_t notchDepth=depth;
@@ -51,14 +51,14 @@ namespace sylvanmats::io::tikz{
                   //std::cout<<typeid(wv).name()<<" "<<depth<<" "<<dfs.depth()<<" "<<size(graph::edges(jsonBinder.dagGraph, vid))<<" "<<visited[vid]<<" "<<size(graph::edges(jsonBinder.dagGraph, wid))<<" "<<visited[wid]<<std::endl;
                   //if (!visited[ev]) {
                   if(depth>dfs.depth()){
-                    if(!tree.empty() && size(graph::views::incidence(jsonBinder.dagGraph, vid))>1 && size(graph::views::incidence(jsonBinder.dagGraph, vid))==visited[vid])tree.append("}");
+                    if(!tree.empty() && graph::views::incidence(jsonBinder.dagGraph, vid).size()>1 && graph::views::incidence(jsonBinder.dagGraph, vid).size()==visited[vid])tree.append("}");
                     if(!tree.empty())tree.append(";\n");
                     auto vValue=graph::vertex_value(jsonBinder.dagGraph, *graph::find_vertex(jsonBinder.dagGraph, vid));
                     tree.append(std::to_string(vValue.id));
                   }
                     auto& wValue=graph::vertex_value(jsonBinder.dagGraph, *graph::find_vertex(jsonBinder.dagGraph, wid));
                     tree.append(" -> ");
-                    if(depth<dfs.depth() && size(graph::views::incidence(jsonBinder.dagGraph, vid))>1 && visited[vid]==0)tree.append("{");
+                    if(depth<dfs.depth() && graph::views::incidence(jsonBinder.dagGraph, vid).size()>1 && visited[vid]==0)tree.append("{");
                     tree.append("\"");
                     if(wValue.obj_type==sylvanmats::io::json::PAIR_VALUE){
                         std::string pairKeyName(wValue.key);
@@ -70,7 +70,7 @@ namespace sylvanmats::io::tikz{
                     }
                     tree.append(std::to_string(wValue.id));
                     tree.append("\"");
-                    if(size(graph::views::incidence(jsonBinder.dagGraph, wid))==0)tree.append(" [mark]");
+                    if(graph::views::incidence(jsonBinder.dagGraph, wid).size()==0)tree.append(" [mark]");
                     visited[vid]++;
                   //}
                   if(depth>dfs.depth())notchDepth=dfs.depth();

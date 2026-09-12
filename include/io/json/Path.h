@@ -290,7 +290,7 @@ namespace sylvanmats::io::json{
                 else
                     s <<((p.label.compare("/")!=0) ? "/" :"")<< p.label<<" == "<<std::any_cast<std::string_view>(p.value);
             }
-            else
+            else if(p.label.compare("/")!=0)
                 s <<((p.label.compare("/")!=0) ? "/" :"")<< p.label;
         }
           return s;
