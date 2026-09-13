@@ -40,6 +40,7 @@ jobs:
       run: |
         # Resolves all dependencies specified in the root package.json
         cnpm install
+        ls -lastr ./cpp_modules/*
 
     - name: Set Compiler Environment Variables
       run: |
