@@ -14,23 +14,31 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Set up Node.js Environment
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
-        cache: 'npm' # Automatically caches node_modules dependencies
-
     - name: Install Toolchain and Global Packages
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential gcc-14 g++-14 libstdc++-14-dev
-        # Install cnpm globally to mirror your package.json workflow
-        npm install -g cnpm
+
+    - name: Log in to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Extract the standalone ~1.4 MB binary directly into the runner's PATH
+    - name: Fetch Pre-compiled cnpm
+      run: |
+        docker create --name cnpm-container ghcr.io/datadriven-cam/cnpm:latest
+        docker cp cnpm-container:/usr/local/bin/cnpm ./cnpm
+        docker rm cnpm-container
+        chmod +x ./cnpm
+        sudo mv ./cnpm /usr/local/bin/cnpm
 
     - name: Install Project Dependencies
       run: |
         # Resolves all dependencies specified in the root package.json
-        npm install
+        cnpm install
 
     - name: Set Compiler Environment Variables
       run: |
@@ -49,4 +57,4 @@ jobs:
     - name: Run Test Suite via cnpm
       run: |
         # Executes the package.json test script directly via cnpm
-        npm test
+        cnpm test
