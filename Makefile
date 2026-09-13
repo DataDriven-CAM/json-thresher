@@ -22,8 +22,8 @@ endif
 all: build/src/io/json/Path.o  build/src/io/json/Binder.o
 	@mkdir -p $(@D)
 	#ld --help
-	$(CXX)  -shared $(LDFLAGS) -o $(libprefix)jsonthresher.$(ext) $(wildcard build/src/io/json/*.o) 
-	$(AR) $(ARFLAGS) $(libprefix)jsonthresher.a $(wildcard build/src/io/json/*.o) 
+	$(CXX)  -shared $(LDFLAGS) -o $(libprefix)jsonthresher.$(ext) build/src/io/json/*.o 
+	$(AR) $(ARFLAGS) $(libprefix)jsonthresher.a build/src/io/json/*.o 
 
 build/src/io/json/Path.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fPIC -pthread -std=c++26 -I./include -Isrc -MMD
 build/src/io/json/Path.o: src/io/json/Path.cpp 
