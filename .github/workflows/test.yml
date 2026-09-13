@@ -16,8 +16,9 @@ jobs:
 
     - name: Install Toolchain and Global Packages
       run: |
+        sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc-14 g++-14 libstdc++-14-dev
+        sudo apt-get install -y build-essential gcc-16 g++-16 libstdc++-16-dev
 
     - name: Log in to GHCR
       uses: docker/login-action@v3
@@ -29,7 +30,7 @@ jobs:
     # Extract the standalone ~1.4 MB binary directly into the runner's PATH
     - name: Fetch Pre-compiled cnpm
       run: |
-        docker create --name cnpm-container ghcr.io/datadriven-cam/cnpm:latest
+        docker create --name cnpm-container ghcr.io/datadriven-cam/cnpm:latest true
         docker cp cnpm-container:/usr/local/bin/cnpm ./cnpm
         docker rm cnpm-container
         chmod +x ./cnpm
