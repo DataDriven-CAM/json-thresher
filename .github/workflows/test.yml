@@ -54,8 +54,10 @@ jobs:
     - name: Build doctest Binary (Test Directory Makefile)
       run: |
         cd test
-        mkdir -p build/src/io/json
+        pwd
+        mkdir -p build/src
         make
+        cd ..
 
     - name: Run Test Suite via cnpm
       run: |
