@@ -162,13 +162,13 @@ concept IsJsonKeyValuePair = requires {
             
         }
         else {
-            auto start = std::chrono::high_resolution_clock::now();
+            // auto start = std::chrono::high_resolution_clock::now();
             size_t count=0;
             singleMatch=true;
             bool hit=match(jp, true, [&](size_t id, std::string_view key, const JsonValue& v)-> bool{
-                auto end = std::chrono::high_resolution_clock::now();
+                // auto end = std::chrono::high_resolution_clock::now();
                 count++;
-                matchTime=std::chrono::duration_cast<std::chrono::nanoseconds>(end-start).count()*1.0e-9;
+                // matchTime=std::chrono::duration_cast<std::chrono::nanoseconds>(end-start).count()*1.0e-9;
                 size_t insertionOffset=0;
                 size_t indention=0;
                 bool comma=false;
