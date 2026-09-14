@@ -41,6 +41,7 @@ jobs:
         # Resolves all dependencies specified in the root package.json
         cnpm install
         ls -lastr ./cpp_modules/*
+        cnpm fmt
 
     - name: Set Compiler Environment Variables
       run: |
@@ -54,6 +55,7 @@ jobs:
     - name: Build doctest Binary (Test Directory Makefile)
       run: |
         cd test
+
         pwd
         mkdir -p build/src
         make
