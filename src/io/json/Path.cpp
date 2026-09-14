@@ -14,7 +14,8 @@ namespace sylvanmats::io::json{
         constexpr std::string_view delim{"/"};
         std::ranges::split_view splitting(pathRespresentation, delim);
         reserveSize=std::distance(splitting.cbegin(), splitting.cend());
-        reserve(reserveSize);
+        reserve(reserveSize+1);
+        if(this-p.empty())this->p.push_back({.label="/", .action=NOP});
         for (const auto wordRange : splitting){
             std::string word(wordRange.begin(), wordRange.end());
             if(word.size()==1 && word.at(0)=='*')this->p.push_back({.label=word, .action=ARRAY});

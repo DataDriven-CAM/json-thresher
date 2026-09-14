@@ -4,8 +4,8 @@ MODULE_DIRECTORY ?= ../cpp_modules
 
 OPT_FLAGS ?= -O3
 
--include ../build/src/io/json/Binder.d
--include ../build/src/io/json/Path.d
+#-include ../build/src/io/json/Binder.d
+#-include ../build/src/io/json/Path.d
 
 all: LDFLAGS= -fuse-ld=gold -L../ -ljsonthresher -pthread
 all: build/src/compile-time-test.o build/src/test.o
