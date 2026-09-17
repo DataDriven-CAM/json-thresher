@@ -57,7 +57,6 @@ jobs:
         cd test
 
         pwd
-        export LD_LIBRARY_PATH=..:${LD_LIBRARY_PATH}
         mkdir -p build/src
         make
         cd ..
