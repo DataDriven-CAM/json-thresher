@@ -42,7 +42,7 @@ TEST_CASE("test generating grammar components") {
 TEST_CASE("test dfs"){
   try{
     // Ensure static storage duration so the view points to persistent data
-    static constexpr std::string_view sample_schema = R"({
+    static constexpr std::u8string_view sample_schema = u8R"({
         "type": "object",
         "properties": {
             "id": "number",
@@ -65,11 +65,11 @@ TEST_CASE("test dfs"){
 }
 
 TEST_CASE("test jgf 2.0 binding"){
-    constexpr char jsonBuffer[] ={
+    constexpr char8_t jsonBuffer[] ={
 #embed "json-graph-schema_v2.json"
     };
     sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
-    static constexpr auto gbnf=gBackusNaurFormation(std::string_view(jsonBuffer, sizeof(jsonBuffer)));
+    static constexpr auto gbnf=gBackusNaurFormation(std::u8string_view(jsonBuffer, sizeof(jsonBuffer)));
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << "--- METAPROGRAMMED GBNF WITH ALTERNATION BRANCHING ---\n";
     std::cout << gbnfView<<std::endl;

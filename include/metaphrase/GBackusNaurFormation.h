@@ -117,22 +117,22 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
         OBJECT_TYPE obj_type;
         size_t id=0;
         size_t parent_id=0;
-        std::string_view key{};
-        std::string_view value{};
+        std::u8string_view key{};
+        std::u8string_view value{};
         size_t depth=0;
         bool is_choice_branch = false; // Flag to indicate if this node is an alternation sibling
     };
 
     using G = graph::container::dynamic_adjacency_graph<graph::container::vov_graph_traits<int, jobject>>;
 
-    consteval int gbnfBuffer(std::string_view jsonBuffer){
+    consteval int gbnfBuffer(std::u8string_view jsonBuffer){
         G dagGraph;
         fixed_stack<graph::copyable_vertex_t<size_t, jobject>, 4096> vertices;
         fixed_stack<graph::copyable_edge_t<size_t, int>, 4095> edges;
         fixed_stack<size_t, 64> parentStack;
 
         std::span s={jsonBuffer};
-        std::span<const char>::iterator it=s.begin();
+        std::span<const char8_t>::iterator it=s.begin();
         size_t keyStart=0;
         size_t keyEnd=0;
         bool inString = false;
@@ -149,7 +149,7 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
                 continue;
             }
             if(*it=='{'){
-                vertices.push(graph::copyable_vertex_t<size_t, jobject>{vertices.size(), jobject{.id=vertices.size(), .parent_id=parentStack.back(), .key=std::string_view(s.begin()+keyStart, s.begin()+keyEnd), .value=std::string_view(it, it+1), .depth=parentStack.size()}});
+                vertices.push(graph::copyable_vertex_t<size_t, jobject>{vertices.size(), jobject{.id=vertices.size(), .parent_id=parentStack.back(), .key=std::u8string_view(s.begin()+keyStart, s.begin()+keyEnd), .value=std::u8string_view(it, it+1), .depth=parentStack.size()}});
                 if(vertices.size()>1)edges.push(graph::copyable_edge_t<size_t, int>{vertices.back().value.parent_id, vertices.back().value.id, 1});
                 parentStack.push(vertices.back().id);
 
@@ -236,7 +236,7 @@ struct fixed_accumulator {
         GBackusNaurFormation& operator=(const GBackusNaurFormation& orig) = delete;
         GBackusNaurFormation& operator=(GBackusNaurFormation&& orig) = delete;
         ~GBackusNaurFormation() = default;
-        constexpr fixed_string<8193> operator ()(std::string_view jsonBuffer){
+        constexpr fixed_string<8193> operator ()(std::u8string_view jsonBuffer){
             fixed_stack<std::tuple<size_t, jobject>, 4096> vertices;
             fixed_stack<std::tuple<size_t, size_t, int>, 4095> edges;
             fixed_stack<size_t, 64> parentStack;
@@ -253,7 +253,7 @@ struct fixed_accumulator {
                     cursor++;
                 }
                 if (cursor >= jsonBuffer.size()) break;
-                if(jsonBuffer[cursor]=='n' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)=="null"){
+                if(jsonBuffer[cursor]=='n' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)==u8"null"){
                     size_t idx1 = vertices.size();
                     vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
                     if(vertices.size()>1)edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
@@ -262,7 +262,7 @@ struct fixed_accumulator {
                     hitComma=false;
                     cursor+=4;
                 }
-                else if(jsonBuffer[cursor]=='t' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)=="true"){
+                else if(jsonBuffer[cursor]=='t' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)==u8"true"){
                     size_t idx1 = vertices.size();
                     vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size()});
                     edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
@@ -271,7 +271,7 @@ struct fixed_accumulator {
                     hitComma=false;
                     cursor+=4;
                 }
-                else if(jsonBuffer[cursor]=='f' && cursor<jsonBuffer.size()-5 && jsonBuffer.substr(cursor, 5)=="false"){
+                else if(jsonBuffer[cursor]=='f' && cursor<jsonBuffer.size()-5 && jsonBuffer.substr(cursor, 5)==u8"false"){
                     size_t idx1 = vertices.size();
                     vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size()});
                     edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
@@ -296,8 +296,8 @@ struct fixed_accumulator {
                     vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parentStack.empty() ? 0 : parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
                     if(vertices.size()>1)edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                     parentStack.push(std::get<1>(vertices.back()).id);
-                    std::string_view& key=std::get<1>(vertices[std::get<1>(vertices.back()).parent_id]).key;
-                    if(key=="oneOf" || key=="anyOf" || key=="enum" || key=="type")
+                    std::u8string_view& key=std::get<1>(vertices[std::get<1>(vertices.back()).parent_id]).key;
+                    if(key==u8"oneOf" || key==u8"anyOf" || key==u8"enum" || key==u8"type")
                         std::get<1>(vertices.back()).is_choice_branch=true;
                     hitColon=false;
                     hitComma=false;
@@ -429,7 +429,7 @@ struct fixed_accumulator {
                     }
 
                     // Handle $ref string resolution right before stepping forward
-                    if (v_obj.key == "$ref") {
+                    if (v_obj.key == u8"$ref") {
                         size_t resolved_target = resolve_ref_pointer(v_obj.value, vertices);
                         if (resolved_target != u && !visited[resolved_target]) {
                             // Jump immediately to the resolved rule sub-graph definition
@@ -453,18 +453,18 @@ struct fixed_accumulator {
 
         template<size_t VCapacity>
         constexpr size_t resolve_ref_pointer(
-            std::string_view ref_path, 
+            std::u8string_view ref_path, 
             const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices
         ) {
             // Stripping the leading #/ if present
-            if (ref_path.starts_with("#/")) {
+            if (ref_path.starts_with(u8"#/")) {
                 ref_path.remove_prefix(2);
             }
 
             // A standard JSON pointer uses '/' as a structural delimiter.
             // For flat schema architectures, the final segment is typically the target key.
             size_t last_slash = ref_path.find_last_of('/');
-            std::string_view target_key = (last_slash == std::string_view::npos) 
+            std::u8string_view target_key = (last_slash == std::u8string_view::npos)
                                         ? ref_path 
                                         : ref_path.substr(last_slash + 1);
 
