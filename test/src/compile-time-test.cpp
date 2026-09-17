@@ -56,11 +56,11 @@ TEST_CASE("test dfs"){
     std::cout << "--- METAPROGRAMMED GBNF WITH ALTERNATION BRANCHING ---\n";
     std::cout << generated_rules.view();
   }
-  catch(std::exception& e){
-    std::cout << "exception "<<e.what()<<std::endl;
-  }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
+  }
+  catch(std::exception& e){
+    std::cout << "exception "<<e.what()<<std::endl;
   }
 }
 
