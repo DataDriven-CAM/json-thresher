@@ -421,7 +421,7 @@ TEST_CASE("test reading mimes db.json") {
 //            ofs<<depthText;
 //            ofs.close();
         sylvanmats::io::json::Path jp="*"_jp;
-        CHECK_EQ(jp.p.size(), 1);
+        CHECK_EQ(jp.p.size(), 2);
 //        std::cout<<"jp "<<jp<<std::endl;
         std::vector<std::string> mimeNames;
         jsonBinder(jp, [&](std::string_view key, const sylvanmats::io::json::JsonValue& v){
@@ -656,5 +656,60 @@ TEST_CASE("test reading monorepo json") {
         std::cout<<"\t"<<w<<std::endl;
     }
 }
+
+TEST_CASE("test workspace regular package json") {
+    std::string jsonContent=R"({
+  "name": "materials-project",
+  "version": "1.0.0",
+  "description": "Interface to materials computation",
+  "main": "main",
+  "repository": "https://github.com/rimmartin/materials-project.git",
+  "author": "rimmartin",
+  "dependencies": {
+    "json-thresher": "DataDriven-CAM/json-thresher",
+    "mio": "mandreyel/mio",
+    "stdexec": "nvidia/stdexec",
+    "expected" : "TartanLlama/expected",
+    "graph-v3": "stdgraph/graph-v3",
+    "openssl": "openssl/openssl#openssl-4.0.0",
+    "urlcpp": "rimmartin/urlcpp",
+    "libneo4j-client": "cleishm/libneo4j-client",
+    "llama.cpp": "ggml-org/llama.cpp#master",
+    "cuml": "NVIDIA/cuml"
+  },
+  "devDependencies" : {
+    "doctest" : "onqtam/doctest"
+  },
+  "license": "MIT",
+  "private": false,
+  "scripts" : {
+    "build" : "make -j 3 -f Makefile all && cd test && pwd && mkdir -p build/src && make  -j 3 -f Makefile all",
+    "clean" : "make clean",
+    "test" : "cnpm build && cd test && pwd && ./test --test-case='test out c++ async capabiities' "
+  }
+}
+)";
+    sylvanmats::io::json::Binder jsonBinder;
+    jsonBinder(jsonContent);
+        CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 25);
+        CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 24);
+        // jsonBinder.display();
+    sylvanmats::io::json::Path jp;
+    jp["workspaces"]["*"];
+    CHECK_EQ(jp.p.size(), 3);
+//        std::cout<<"jp "<<jp<<std::endl;
+    std::vector<std::string_view> workspaces;
+    jsonBinder(jp, [&workspaces](const sylvanmats::io::json::JsonValue& v){
+        if (auto pVal = std::get_if<std::string_view>(&v)) {
+            workspaces.push_back(*pVal);
+        }
+    });
+    CHECK_EQ(workspaces.size(), 0);
+    std::cout<<"workspaces: "<<std::endl;
+    for(auto& w : workspaces){
+        std::cout<<"\t"<<w<<std::endl;
+    }
+}
+
 
 }

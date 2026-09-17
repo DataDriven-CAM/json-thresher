@@ -12,7 +12,7 @@ all: build/src/compile-time-test.o build/src/test.o
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) $(wildcard build/src/*.o) -o test  
 
-build/src/compile-time-test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -freflection -pthread -std=c++26 -I../include -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include  -I$(MODULE_DIRECTORY)/urlcpp -I$(MODULE_DIRECTORY)/fmt/dist/include -I$(MODULE_DIRECTORY)/doctest  -MMD
+build/src/compile-time-test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -freflection --embed-dir=../cpp_modules/json-graph-specification -pthread -std=c++26 -I../include -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include  -I$(MODULE_DIRECTORY)/urlcpp -I$(MODULE_DIRECTORY)/fmt/dist/include -I$(MODULE_DIRECTORY)/doctest  -MMD
 build/src/compile-time-test.o: LDFLAGS= 
 build/src/compile-time-test.o: src/compile-time-test.cpp
 	@mkdir -p $(@D)

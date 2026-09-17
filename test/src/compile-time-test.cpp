@@ -3,11 +3,18 @@
 #include <doctest/doctest.h>
 
 #include <cstdio>
+#include <cstddef>
+#include <cstring>
 #include <fstream>
 #include <ranges>
 #include <deque>
 #include <chrono>
 #include <meta>
+#include <string_view>
+#include <span>
+#include <array>
+#include <format>
+#include <concepts>
 
 #define protected public
 #include "io/json/Binder.h"
@@ -17,7 +24,65 @@
 #include "graph/views/incidence.hpp"
 #include "graph/views/vertexlist.hpp"
 
+#include "metaphrase/GBackusNaurFormation.h"
+
+
 TEST_SUITE("compile-time"){
+
+TEST_CASE("test generating grammar components") {
+    constexpr auto root_rule  = sylvanmats::metaphrase::make_gbnf_rule<"root", R"("{ \"graph\": " graphBody " }")">();
+    constexpr auto graph_body = sylvanmats::metaphrase::make_gbnf_rule<"graphBody", R"("{ \"nodes\": " nodesArray " }")">();
+
+    std::cout << "--- METAPROGRAMMED GBNF ---\n";
+    std::cout << root_rule.view();
+    std::cout << graph_body.view();
+
+}
+
+TEST_CASE("test dfs"){
+  try{
+    // Ensure static storage duration so the view points to persistent data
+    static constexpr std::string_view sample_schema = R"({
+        "type": "object",
+        "properties": {
+            "id": "number",
+            "name": "string"
+        }
+    })";
+
+        sylvanmats::metaphrase::GBackusNaurFormation gbnf_parser{};
+    constexpr auto generated_rules = gbnf_parser(sample_schema);
+
+    std::cout << "--- METAPROGRAMMED GBNF WITH ALTERNATION BRANCHING ---\n";
+    std::cout << generated_rules.view();
+  }
+  catch(std::exception& e){
+    std::cout << "exception "<<e.what()<<std::endl;
+  }
+  catch(std::out_of_range& e){
+    std::cout << "out of range "<<e.what()<<std::endl;
+  }
+}
+
+TEST_CASE("test jgf 2.0 binding"){
+    constexpr char jsonBuffer[] ={
+#embed "json-graph-schema_v2.json"
+    };
+    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    static constexpr auto gbnf=gBackusNaurFormation(std::string_view(jsonBuffer, sizeof(jsonBuffer)));
+    constexpr std::string_view gbnfView=gbnf.view();
+    std::cout << "--- METAPROGRAMMED GBNF WITH ALTERNATION BRANCHING ---\n";
+    std::cout << gbnfView<<std::endl;
+    CHECK_EQ(gbnfView.size(), 125);
+    CHECK_EQ(gbnfView.find("node"), std::string_view::npos);
+    CHECK_EQ(gbnfView.find("edge"), std::string_view::npos);
+    CHECK_EQ(gbnfView.find("graph"), std::string_view::npos);
+    CHECK_EQ(gbnfView.find("nodes"), std::string_view::npos);
+    CHECK_EQ(gbnfView.find("edges"), std::string_view::npos);
+    CHECK_EQ(gbnfView.find("root"), std::string_view::npos);
+
+
+}
 
 TEST_CASE("test meta of typing") {
   std::string jsonContent=R"({
