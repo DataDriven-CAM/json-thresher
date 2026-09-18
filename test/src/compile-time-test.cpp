@@ -53,7 +53,6 @@ TEST_CASE("test dfs"){
         sylvanmats::metaphrase::GBackusNaurFormation gbnf_parser{};
     constexpr auto generated_rules = gbnf_parser(sample_schema);
 
-    std::cout << "--- METAPROGRAMMED GBNF WITH ALTERNATION BRANCHING ---\n";
     std::cout << generated_rules.view();
   }
   catch(std::out_of_range& e){
@@ -71,15 +70,14 @@ TEST_CASE("test jgf 2.0 binding"){
     sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
     static constexpr auto gbnf=gBackusNaurFormation(std::u8string_view(jsonBuffer, sizeof(jsonBuffer)));
     constexpr std::string_view gbnfView=gbnf.view();
-    std::cout << "--- METAPROGRAMMED GBNF WITH ALTERNATION BRANCHING ---\n";
     std::cout << gbnfView<<std::endl;
-    CHECK_EQ(gbnfView.size(), 125);
-    CHECK_EQ(gbnfView.find("node"), std::string_view::npos);
-    CHECK_EQ(gbnfView.find("edge"), std::string_view::npos);
-    CHECK_EQ(gbnfView.find("graph"), std::string_view::npos);
-    CHECK_EQ(gbnfView.find("nodes"), std::string_view::npos);
-    CHECK_EQ(gbnfView.find("edges"), std::string_view::npos);
-    CHECK_EQ(gbnfView.find("root"), std::string_view::npos);
+    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_NE(gbnfView.find("node"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("edge"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("graph"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("nodes"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("edges"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("root"), std::string_view::npos);
 
 
 }

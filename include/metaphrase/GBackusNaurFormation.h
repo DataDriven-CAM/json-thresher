@@ -107,6 +107,7 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
         JSON_OBJECT,
         JSON_ARRAY,
         JSON_STRING,
+        JSON_NUMBER,
         VALUE,
         JSON_BOOLEAN,
         PAIR_VALUE,
@@ -208,6 +209,19 @@ struct fixed_accumulator {
         }
     }
 
+    constexpr void append(std::u8string_view u8sv) {
+        if (current_len + u8sv.length() + 1 <= MaxCapacity) {
+            for (size_t i = 0; i < u8sv.length(); ++i) {
+                // static_cast from char8_t to char is fully permitted in constexpr
+                data_buffer[current_len + i] = static_cast<char>(u8sv[i]);
+            }
+            current_len += u8sv.length();
+            data_buffer[current_len] = '\0';
+        } else {
+            throw std::out_of_range("fixed_accumulator overflow on u8 append");
+        }
+    }
+
     constexpr void push_back(char c) {
         if (current_len + 2 <= MaxCapacity) {
             data_buffer[current_len++] = c;
@@ -221,6 +235,11 @@ struct fixed_accumulator {
     constexpr size_t size() const { return current_len; }
     constexpr std::string_view view() const { return std::string_view(data_buffer, current_len); }
 };
+
+    struct RawEdge {
+         size_t source;
+         size_t destination;
+    };
 
     // Helper to keep track of traversal state without recursion
     struct DFSState {
@@ -240,6 +259,10 @@ struct fixed_accumulator {
             fixed_stack<std::tuple<size_t, jobject>, 4096> vertices;
             fixed_stack<std::tuple<size_t, size_t, int>, 4095> edges;
             fixed_stack<size_t, 64> parentStack;
+            fixed_stack<RawEdge, 4095> raw_edges;
+
+            std::array<size_t, 4096> child_counts{};
+            child_counts.fill(0);
 
             size_t cursor = 0;
             size_t keyStart=0;
@@ -256,7 +279,11 @@ struct fixed_accumulator {
                 if(jsonBuffer[cursor]=='n' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)==u8"null"){
                     size_t idx1 = vertices.size();
                     vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
-                    if(vertices.size()>1)edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                    if(vertices.size()>1){
+                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                        child_counts[std::get<1>(vertices.back()).parent_id]++;
+                    }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
@@ -265,7 +292,9 @@ struct fixed_accumulator {
                 else if(jsonBuffer[cursor]=='t' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)==u8"true"){
                     size_t idx1 = vertices.size();
                     vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size()});
-                    edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                    // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                    raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                    child_counts[std::get<1>(vertices.back()).parent_id]++;
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
@@ -274,7 +303,9 @@ struct fixed_accumulator {
                 else if(jsonBuffer[cursor]=='f' && cursor<jsonBuffer.size()-5 && jsonBuffer.substr(cursor, 5)==u8"false"){
                     size_t idx1 = vertices.size();
                     vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size()});
-                    edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                    // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                    raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                    child_counts[std::get<1>(vertices.back()).parent_id]++;
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
@@ -283,7 +314,11 @@ struct fixed_accumulator {
                 else if(jsonBuffer[cursor]=='{'){
                     size_t idx1 = vertices.size();
                     vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parentStack.empty() ? 0 : parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
-                    if(vertices.size()>1)edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                    if(vertices.size()>1){
+                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                        child_counts[std::get<1>(vertices.back()).parent_id]++;
+                    }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
@@ -294,11 +329,15 @@ struct fixed_accumulator {
                 if(jsonBuffer[cursor]=='['){
                     size_t idx1 = vertices.size();
                     vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parentStack.empty() ? 0 : parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
-                    if(vertices.size()>1)edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                    if(vertices.size()>1){
+                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                        child_counts[std::get<1>(vertices.back()).parent_id]++;
+                    }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     std::u8string_view& key=std::get<1>(vertices[std::get<1>(vertices.back()).parent_id]).key;
                     if(key==u8"oneOf" || key==u8"anyOf" || key==u8"enum" || key==u8"type")
-                        std::get<1>(vertices.back()).is_choice_branch=true;
+                        std::get<1>(vertices[std::get<1>(vertices.back()).parent_id]).is_choice_branch=true;
                     hitColon=false;
                     hitComma=false;
                 }
@@ -313,7 +352,9 @@ struct fixed_accumulator {
                     if(std::get<1>(vertices[parentStack.back()]).obj_type==JSON_ARRAY){
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=vertices.size(), .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
-                        edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                        child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
                     else if(!hitColon){
                         keyStart=startOffset;
@@ -322,7 +363,9 @@ struct fixed_accumulator {
                     else{
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=PAIR_VALUE, .id=vertices.size(), .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
-                        edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                        child_counts[std::get<1>(vertices.back()).parent_id]++;
                         hitColon=false;
                         hitComma=false;
                     }
@@ -338,15 +381,19 @@ struct fixed_accumulator {
                     double val{};
                     if(hitPeriod){
                         size_t idx1 = vertices.size();
-                        vertices.emplace(idx1, jobject{.obj_type=VALUE, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
-                        edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
+                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                        child_counts[std::get<1>(vertices.back()).parent_id]++;
                         // parentStack.push_back(vertices.back().id);
                         // if(maxStackSize<parentStack.size())maxStackSize=parentStack.size();
                     }
                     else{
                         size_t idx1 = vertices.size();
-                        vertices.emplace(idx1, jobject{.obj_type=VALUE, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
-                        edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
+                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                        child_counts[std::get<1>(vertices.back()).parent_id]++;
                         // parentStack.push_back(vertices.back().id);
                         // if(maxStackSize<parentStack.size())maxStackSize=parentStack.size();
                     }
@@ -368,8 +415,39 @@ struct fixed_accumulator {
                 cursor++;
             }
             
+            std::array<size_t, 4096> edge_offsets{};
+            size_t running_sum = 0;
+
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                edge_offsets[i] = running_sum;
+                running_sum += child_counts[i];
+            }
+
+            // Set the final edge size bounds explicitly
+            edges.current_size = raw_edges.size();
+
+            // Populate the final edges table in a single linear pass.
+            // Because we use the pre-calculated offsets, all edges share the same source 
+            // are automatically written into a perfectly contiguous block!
+            for (size_t i = 0; i < raw_edges.size(); ++i) {
+                size_t src = raw_edges[i].source;
+                size_t dest = raw_edges[i].destination;
+                
+                size_t target_slot = edge_offsets[src]++;
+                edges[target_slot] = std::tuple<size_t, size_t, int>{src, dest, 1};
+            }
+            // 1. Storage bounds matching your structural limits
+            std::array<size_t, 4096> edge_start_idx{};
+            size_t sum = 0;
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                edge_start_idx[i] = sum;
+                sum += child_counts[i];
+            }
+
             fixed_accumulator<8193> gbnfAcc{};
-            traverse_gbnf_graph(vertices, edges, gbnfAcc);
+            gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
+            gbnfAcc.append("# Generated automatically from source JSON Schema definitions\n\n");
+            traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, gbnfAcc);
             gbnfAcc.append(
                 "ws ::= [ \\t\\n\\r]*\n"
                 "string ::= \"\\\"\" ([^\"])* \"\\\"\"\n"
@@ -380,10 +458,13 @@ struct fixed_accumulator {
             return sylvanmats::metaphrase::fixed_string<8193>(gbnfAcc.data(), gbnfAcc.size());
         }
 
+        private:
         template<size_t VCapacity, size_t ECapacity>
         constexpr void traverse_gbnf_graph(
             const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
             const fixed_stack<std::tuple<size_t, size_t, int>, ECapacity>& edges,
+            const std::array<size_t, VCapacity>& edge_start_idx,
+            std::array<size_t, 4096>& child_counts,
             fixed_accumulator<8193>& gbnfAcc
         ) {
             // 1. Explicit visitor stack replacing runtime/compiler call recursion
@@ -397,59 +478,126 @@ struct fixed_accumulator {
             traversal_stack.push(DFSState{0, 0});
             visited[0] = true;
 
+            std::array<size_t, 4096> printed_fields{};
+            printed_fields.fill(0);
+            
             while (!traversal_stack.empty()) {
                 auto& state = traversal_stack.back();
                 size_t u = state.vertex_id;
+                size_t start = edge_start_idx[u];
+                size_t total_children = child_counts[u];
+
                 const auto& u_obj = std::get<1>(vertices[u]);
 
-                // Find the next outgoing edge from vertex 'u' starting from state.current_edge_idx
+                if (state.current_edge_idx == 0 && !u_obj.is_choice_branch) {
+                    if (!is_schema_keyword(u_obj.key)) {
+                        // Emit rule name declaration
+                        if (u == 0 || u_obj.parent_id == 0) gbnfAcc.append("root ::= ");
+                        else { gbnfAcc.append(u_obj.key); gbnfAcc.append("_rule ::= "); }
+
+                        // Rule Enclosures open with flexible spacing rules
+                        if (u_obj.obj_type == JSON_OBJECT) {
+                            gbnfAcc.append("\"{\" ws ");
+                        } else if (u_obj.obj_type == JSON_ARRAY) {
+                            gbnfAcc.append("\"[\" ws ");
+                        }
+                    }
+                }
+               // Find the next outgoing edge from vertex 'u' starting from state.current_edge_idx
                 bool edge_found = false;
                 size_t target_v = 0;
 
-                for (size_t i = state.current_edge_idx; i < edges.size(); ++i) {
-                    size_t source = std::get<0>(edges[i]);
-                    size_t destination = std::get<1>(edges[i]);
-
-                    if (source == u) {
-                        state.current_edge_idx = i + 1; // Save our progress for when we backtrack
-                        target_v = destination;
-                        edge_found = true;
-                        break;
+                if (state.current_edge_idx < total_children) {
+                    size_t actual_edge_pos = start + state.current_edge_idx;
+                    
+                    target_v = std::get<1>(edges[actual_edge_pos]);
+                    if (u_obj.is_choice_branch) {
+                        // If this is not the first array item, separate them with a clean GBNF pipe
+                        if (state.current_edge_idx > 0) {
+                            gbnfAcc.append(" | ");
+                        }
                     }
+                    state.current_edge_idx++; // Move to next sibling for backtracking
+                    edge_found = true;
                 }
 
                 if (edge_found) {
                     const auto& v_obj = std::get<1>(vertices[target_v]);
+                    state.current_edge_idx++; // Move to next sibling
 
-                    // --- METAPHRASE PRODUCTION LOGIC HITS HERE ---
-                    // Example: Handle choice transitions, rule names, or string expansions
-                    if (v_obj.obj_type == JSON_OBJECT) {
-                        // Append tokens to output_buffer here...
-
-                    }
-
-                    // Handle $ref string resolution right before stepping forward
-                    if (v_obj.key == u8"$ref") {
-                        size_t resolved_target = resolve_ref_pointer(v_obj.value, vertices);
-                        if (resolved_target != u && !visited[resolved_target]) {
-                            // Jump immediately to the resolved rule sub-graph definition
-                            visited[resolved_target] = true;
-                            traversal_stack.push(DFSState{resolved_target, 0});
+                    // 1. If the parent is a "oneOf" router container node, handle choice alternation branches
+                    if (u_obj.key == u8"oneOf" || u_obj.key == u8"anyOf") {
+                        if (state.current_edge_idx > 1) {
+                            gbnfAcc.append(" | "); // Alternation separator
+                        }
+                        // Link directly to the target vertex branch rule name
+                        gbnfAcc.append("branch_");
+                        emit_size_t_as_string(gbnfAcc, target_v);
+                        
+                        // Push child to stack to explore its inner properties
+                        if (!visited[target_v]) {
+                            visited[target_v] = true;
+                            traversal_stack.push(DFSState{target_v, 0});
                         }
                         continue;
                     }
 
-                    // Step deeper into the tree if not visited
-                    if (!visited[target_v]) {
-                        visited[target_v] = true;
-                        traversal_stack.push(DFSState{target_v, 0});
+                    // 2. Ignore structural keywords when evaluating sequence fields
+                    if (is_schema_keyword(v_obj.key)) {
+                        // Transparent routing node! Step straight down into its child graph values
+                        if (!visited[target_v]) {
+                            visited[target_v] = true;
+                            traversal_stack.push(DFSState{target_v, 0});
+                        }
+                        continue;
                     }
-                } else {
-                    // No more outgoing edges from 'u'; backtrack out of this node
-                    traversal_stack.pop();
+
+                    // 3. Normal Data Fields: Handle comma spacing for sequential object keys
+                    if (printed_fields[u] > 0 && !is_schema_keyword(u_obj.key)) {
+                        gbnfAcc.append("\",\" ws ");
+                    }
+                    printed_fields[u]++;
+
+                    // Format raw structural tokens for user object keys
+                    if (u_obj.obj_type == JSON_OBJECT) {
+                        gbnfAcc.append("\"\\\"");
+                        gbnfAcc.append(v_obj.key);
+                        gbnfAcc.append("\\\"\" ws \":\" ws ");
+                    }
+
+                    // Map data values to global rules
+                    if (v_obj.obj_type == JSON_STRING) gbnfAcc.append("string ws ");
+                    else if (v_obj.obj_type == JSON_NUMBER) gbnfAcc.append("number ws ");
+                    else if (v_obj.obj_type == JSON_BOOLEAN) gbnfAcc.append("boolean ws ");
+                    else {
+                        // Nested sub-object target rule call lookup link
+                        gbnfAcc.append(v_obj.key);
+                        gbnfAcc.append("_rule ws ");
+                        
+                        if (!visited[target_v]) {
+                            visited[target_v] = true;
+                            traversal_stack.push(DFSState{target_v, 0});
+                        }
+                    }
+                } 
+                // --- FIX C: EXITING A NODE ---
+                else {
+                    if (!is_schema_keyword(u_obj.key)) {
+                        if (u_obj.obj_type == JSON_OBJECT) gbnfAcc.append("\"}\"");
+                        else if (u_obj.obj_type == JSON_ARRAY) gbnfAcc.append("\"]\"");
+                        gbnfAcc.append("\n");
+                    }
+                   traversal_stack.pop();
                 }
             }
-        }
+        };
+
+        // A simple constexpr flag helper to identify JSON Schema keywords
+        constexpr bool is_schema_keyword(std::u8string_view key) {
+            return key == u8"properties" || key == u8"oneOf" || key == u8"anyOf" || 
+                key == u8"items"      || key == u8"required" || key == u8"additionalProperties" ||
+                key == u8"$schema"    || key == u8"$id"       || key == u8"title" || key == u8"type";
+        }    
 
         template<size_t VCapacity>
         constexpr size_t resolve_ref_pointer(
@@ -477,6 +625,30 @@ struct fixed_accumulator {
             }
 
             return 0; // Fallback to root if unresolvable
+        };
+
+        template<size_t MaxCapacity>
+        constexpr void emit_size_t_as_string(fixed_accumulator<MaxCapacity>& acc, size_t value) {
+            if (value == 0) {
+                acc.push_back('0');
+                return;
+            }
+
+            // 1. A maximum 64-bit integer takes at most 20 digits. 
+            // Allocate a small, fixed array buffer on the compile-time stack frame.
+            char temp_digits[20]{};
+            size_t digit_count = 0;
+
+            // 2. Extract digits backward from right to left using modulo arithmetic
+            while (value > 0) {
+                temp_digits[digit_count++] = static_cast<char>('0' + (value % 10));
+                value /= 10;
+            }
+
+            // 3. Push the characters into the accumulator in the correct forward order
+            for (size_t i = digit_count; i > 0; --i) {
+                acc.push_back(temp_digits[i - 1]);
+            }
         }
     };
 }
