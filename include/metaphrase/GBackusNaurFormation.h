@@ -291,6 +291,7 @@ enum CHOICE_KIND{
             bool hitColon=false;
             bool hitComma=false;
             bool firstObject=true;
+            fixed_accumulator<65536> gbnfAcc{};
             while(cursor<jsonBuffer.size()){
                 while (cursor < jsonBuffer.size() && 
                     (jsonBuffer[cursor] == ' ' || jsonBuffer[cursor] == '\t' || 
@@ -306,10 +307,10 @@ enum CHOICE_KIND{
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
-                    parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
                     cursor+=4;
+                    continue;
                 }
                 else if(jsonBuffer[cursor]=='t' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)==u8"true"){
                     size_t idx1 = vertices.size();
@@ -325,10 +326,10 @@ enum CHOICE_KIND{
                     // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                     raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id});
                     child_counts[parent_id]++;
-                    parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
                     cursor+=4;
+                    continue;
                 }
                 else if(jsonBuffer[cursor]=='f' && cursor<jsonBuffer.size()-5 && jsonBuffer.substr(cursor, 5)==u8"false"){
                     size_t idx1 = vertices.size();
@@ -344,10 +345,10 @@ enum CHOICE_KIND{
                     // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                     raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, EDGE_KIND_AST});
                     child_counts[parent_id]++;
-                    parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
                     cursor+=5;
+                    continue;
                 }
                 else if(jsonBuffer[cursor]=='{'){
                     size_t idx1 = vertices.size();
@@ -364,13 +365,35 @@ enum CHOICE_KIND{
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
+                    gbnfAcc.append("# Object ");
+                    gbnfAcc.append(current_key);
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(jsonBuffer.substr(cursor, 1));
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(std::to_string(idx1));
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(std::to_string(parent_id));
+                    // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_node=choice_flag});
                     keyStart = 0;
                     keyEnd = 0;
                    if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                         raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
                         child_counts[parent_id]++;
+                        gbnfAcc.append(" # Edge ");
+                        gbnfAcc.append(std::get<1>(vertices.back()).key);
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(std::get<1>(vertices.back()).id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(parent_id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(edge_kind));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        gbnfAcc.append("\n");
+                    }
+                    else {
+                        gbnfAcc.append(" # no edge \n");
                     }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
@@ -391,13 +414,35 @@ enum CHOICE_KIND{
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
+                    gbnfAcc.append("# Array ");
+                    gbnfAcc.append(current_key);
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(std::to_string(idx1));
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(jsonBuffer.substr(cursor, 1));
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(std::to_string(parent_id));
+                    gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_node=choice_flag});
                     keyStart = 0;
                     keyEnd = 0;
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                         raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
                         child_counts[parent_id]++;
+                        gbnfAcc.append("# Edge ");
+                        gbnfAcc.append(std::get<1>(vertices.back()).key);
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(parent_id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(std::get<1>(vertices.back()).id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(edge_kind));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        gbnfAcc.append("\n");
+                    }
+                    else {
+                        gbnfAcc.append("# no edge \n");
                     }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
@@ -462,21 +507,15 @@ enum CHOICE_KIND{
                     if(hitPeriod){
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
-                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                         EDGE_KIND edge_kind=EDGE_KIND_AST;
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, edge_kind});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
-                        // parentStack.push_back(vertices.back().id);
-                        // if(maxStackSize<parentStack.size())maxStackSize=parentStack.size();
                     }
                     else{
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
-                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
-                        // parentStack.push_back(vertices.back().id);
-                        // if(maxStackSize<parentStack.size())maxStackSize=parentStack.size();
                     }
                     hitColon=false;
                     hitComma=false;
@@ -504,6 +543,15 @@ enum CHOICE_KIND{
             for (size_t i = 0; i < vertices.size(); ++i) {
                 edge_offsets[i] = running_sum;
                 running_sum += child_counts[i];
+                // gbnfAcc.append("# Node ");
+                // gbnfAcc.append(std::get<1>(vertices[i]).key);
+                // gbnfAcc.append(" ");
+                // gbnfAcc.append(std::get<1>(vertices[i]).value);
+                // gbnfAcc.append(" ");
+                // gbnfAcc.append(std::to_string(std::get<1>(vertices[i]).id));
+                // gbnfAcc.append(" ");
+                // gbnfAcc.append(std::to_string(running_sum));
+                // gbnfAcc.append("\n");
             }
 
             // Set the final edge size bounds explicitly
@@ -529,7 +577,7 @@ enum CHOICE_KIND{
 
             std::array<fixed_accumulator<256>, 4096> vertex_rules{};
             traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, vertex_rules);
-            fixed_accumulator<65536> gbnfAcc{};
+            // fixed_accumulator<65536> gbnfAcc{};
             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
             gbnfAcc.append("# Generated automatically from source JSON Schema definitions\n\n");
             // 1. Core Entry Point Rule
@@ -581,9 +629,9 @@ enum CHOICE_KIND{
                 const auto& u_obj = std::get<1>(vertices[u]);
 
                 if(u_obj.key==u8"properties" || u_obj.key==u8"additionalProperties" || u_obj.key==u8"definitions" || u_obj.key==u8"required" || u_obj.is_choice_node){
-                    vertex_rules[u].append("\n# should not be connected to anything ");
+                    vertex_rules[u].append("\n# ");
                     vertex_rules[u].append(u_obj.key);
-                    vertex_rules[u].append("\n");
+                    vertex_rules[u].append(" should not be connected to anything\n");
                     if (!visited[u]) {
                     visited[u] = true;
                     }
@@ -603,12 +651,12 @@ enum CHOICE_KIND{
                     size_t v = std::get<1>(edges[next_edge]);
                     const auto& v_obj = std::get<1>(vertices[v]);
 
-                    if (v_obj.syntax_id>0) {
+                    if (std::get<2>(edges[next_edge]) == EDGE_KIND_AST_CHOICE) {
                         if (state.current_edge_idx > 1) vertex_rules[u].append(" | ");
                         vertex_rules[u].append(v_obj.key);
                         vertex_rules[u].append("_rule");
                     } else {
-                        if (state.current_edge_idx > 1) vertex_rules[u].append("\",\" ws ");
+                        if (state.current_edge_idx > 1) vertex_rules[u].append(" \",\" ws ");
                         // Emit normal sequential keys and reference links...
                         vertex_rules[u].append(v_obj.key);
                     }
@@ -635,7 +683,7 @@ enum CHOICE_KIND{
 
         template<size_t VCapacity>
         constexpr bool hasParentalSyntax(const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, fixed_stack<size_t, 64>& parentStack){
-            if(parentStack.size()>=2 && (getSchemaSyntax(std::get<1>(vertices[parentStack.back()]).key)>=EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE))
+            if(parentStack.size()>=2 && (getSchemaSyntax(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE))
                 return true;
             else return false;
         }
@@ -645,6 +693,7 @@ enum CHOICE_KIND{
             if (key == u8"additionalProperties") return EDGE_KIND_ADDITIONAL_PROPERTIES;
             if (key == u8"definitions") return EDGE_KIND_DEFINITIONS;
             if (key == u8"required") return EDGE_KIND_REQUIRED;
+            if (getChoiceSyntax(key)!=CHOICE_KIND_NONE) return EDGE_KIND_AST_CHOICE;
             return EDGE_KIND_AST;
         }
 
