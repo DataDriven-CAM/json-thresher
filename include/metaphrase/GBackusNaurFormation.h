@@ -355,7 +355,6 @@ enum CHOICE_KIND{
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     if(firstObject){
-                        firstObject=false;
                         current_key=u8"root";
                     }
                     // Check the key immediately to set the flag inline
@@ -380,7 +379,7 @@ enum CHOICE_KIND{
                     vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     keyStart = 0;
                     keyEnd = 0;
-                   if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
+                   if(!firstObject && vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                         raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
                         child_counts[parent_id]++;
                         gbnfAcc.append(" # Edge ");
@@ -401,6 +400,7 @@ enum CHOICE_KIND{
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
+                    firstObject=false;
                 }
                 else if(jsonBuffer[cursor]=='}'){
                     parentStack.pop();
@@ -643,6 +643,10 @@ enum CHOICE_KIND{
                 // 1. Declare the rule name on entry
                 if (state.current_edge_idx == 0) {
                     vertex_rules[u].append(u_obj.key);
+                    if(u_obj.key.empty()){
+                        vertex_rules[u].append("_branch_");
+                        emit_size_t_as_string(vertex_rules[u], u);
+                    }
                     vertex_rules[u].append("_rule ::= ");
                     if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0) vertex_rules[u].append("\"{\" ws ");
                 }
@@ -659,11 +663,20 @@ enum CHOICE_KIND{
                     else if (v_obj.is_choice_child) {
                         if (state.current_edge_idx > 1) vertex_rules[u].append(" | ");
                         vertex_rules[u].append(v_obj.key);
+                        if(v_obj.key.empty()){
+                            vertex_rules[u].append("_branch_");
+                            emit_size_t_as_string(vertex_rules[u], v);
+                        }
                         vertex_rules[u].append("_rule");
                     } else {
-                        if (state.current_edge_idx > 1) vertex_rules[u].append(" \",\" ws ");
+                        if (state.current_edge_idx > 0) vertex_rules[u].append(" \",\" ws ");
                         // Emit normal sequential keys and reference links...
-                        vertex_rules[u].append(v_obj.key);
+                        if(v_obj.key.empty()){
+                            vertex_rules[u].append("_branch_");
+                            emit_size_t_as_string(vertex_rules[u], v);
+                            vertex_rules[u].append("_rule");
+                        }
+                        else vertex_rules[u].append(v_obj.key);
                     }
                     
                     if (!visited[v]) {
@@ -673,7 +686,8 @@ enum CHOICE_KIND{
                     state.current_edge_idx++;
                 } else {
                     // 3. Close rule on exit
-                    if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0) vertex_rules[u].append("\"}\"");
+                    if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0)
+                     vertex_rules[u].append(" \"}\"");
                     vertex_rules[u].append("\n");
                     traversal_stack.pop();
                 }
