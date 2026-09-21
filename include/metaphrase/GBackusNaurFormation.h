@@ -123,7 +123,7 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
         std::u8string_view key{};
         std::u8string_view value{};
         size_t depth=0;
-        bool is_choice_node = false; // Flag to indicate if this node is syntax for alternation children
+        bool is_choice_child = false; // Flag to indicate if this node is syntax for alternation children
     };
 
     using G = graph::container::dynamic_adjacency_graph<graph::container::vov_graph_traits<int, jobject>>;
@@ -254,6 +254,7 @@ enum CHOICE_KIND{
     CHOICE_KIND_ALLOF=3,
     CHOICE_KIND_ENUM=4,
     CHOICE_KIND_TYPE=5,
+    CHOICE_KIND_ITEMS=6,
 };
 
     struct RawEdge {
@@ -278,7 +279,7 @@ enum CHOICE_KIND{
         ~GBackusNaurFormation() = default;
         constexpr fixed_string<8193> operator ()(std::u8string_view jsonBuffer){
             fixed_stack<std::tuple<size_t, jobject>, 4096> vertices;
-            fixed_stack<std::tuple<size_t, size_t, int>, 4095> edges;
+            fixed_stack<std::tuple<size_t, size_t, EDGE_KIND>, 4095> edges;
             fixed_stack<size_t, 64> parentStack;
             fixed_stack<RawEdge, 4095> raw_edges;
 
@@ -316,13 +317,13 @@ enum CHOICE_KIND{
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    bool choice_flag=getChoiceSyntax(current_key)>CHOICE_KIND_NONE;
+                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
                     size_t syntax_id=(choice_flag) ? parent_id : 0;
                     EDGE_KIND edge_kind=getSchemaSyntax(current_key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size()});
+                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                     raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id});
                     child_counts[parent_id]++;
@@ -335,13 +336,13 @@ enum CHOICE_KIND{
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    bool choice_flag=getChoiceSyntax(current_key)>CHOICE_KIND_NONE;
+                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
                     size_t syntax_id=(choice_flag) ? parent_id : 0;
                     EDGE_KIND edge_kind=getSchemaSyntax(current_key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size()});
+                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                     raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, EDGE_KIND_AST});
                     child_counts[parent_id]++;
@@ -358,7 +359,7 @@ enum CHOICE_KIND{
                         current_key=u8"root";
                     }
                     // Check the key immediately to set the flag inline
-                    bool choice_flag=getChoiceSyntax(current_key)>CHOICE_KIND_NONE;
+                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     size_t syntax_id=(choice_flag) ? parent_id : 0;
                     EDGE_KIND edge_kind=getSchemaSyntax(current_key);
@@ -373,8 +374,10 @@ enum CHOICE_KIND{
                     gbnfAcc.append(std::to_string(idx1));
                     gbnfAcc.append(" ");
                     gbnfAcc.append(std::to_string(parent_id));
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(std::to_string(syntax_id));
                     // gbnfAcc.append("\n");
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_node=choice_flag});
+                    vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     keyStart = 0;
                     keyEnd = 0;
                    if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
@@ -407,7 +410,7 @@ enum CHOICE_KIND{
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     
                     // Check the key immediately to set the flag inline
-                    bool choice_flag = getChoiceSyntax(current_key)>CHOICE_KIND_NONE;
+                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     size_t syntax_id=(choice_flag) ? parent_id : 0;
                     EDGE_KIND edge_kind=getSchemaSyntax(current_key);
@@ -423,7 +426,7 @@ enum CHOICE_KIND{
                     gbnfAcc.append(" ");
                     gbnfAcc.append(std::to_string(parent_id));
                     gbnfAcc.append("\n");
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_node=choice_flag});
+                    vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     keyStart = 0;
                     keyEnd = 0;
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
@@ -463,10 +466,9 @@ enum CHOICE_KIND{
                         if(parentStack.size()>=2){
                             parent_id=parentStack[parentStack.size()-2];
                         }
-                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=vertices.size(), .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
-                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
                         EDGE_KIND edge_kind=EDGE_KIND_AST;
-                        if(std::get<1>(vertices[parentStack.back()]).is_choice_node){
+                        if(std::get<1>(vertices[parentStack.back()]).is_choice_child){
                             edge_kind=EDGE_KIND_AST_CHOICE;
                         }
                         raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
@@ -485,7 +487,7 @@ enum CHOICE_KIND{
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
-                        vertices.emplace(idx1, jobject{.obj_type=PAIR_VALUE, .id=vertices.size(), .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
+                        vertices.emplace(idx1, jobject{.obj_type=PAIR_VALUE, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
                         // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                         if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                             raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
@@ -565,7 +567,7 @@ enum CHOICE_KIND{
                 size_t dest = raw_edges[i].destination;
                 
                 size_t target_slot = edge_offsets[src]++;
-                edges[target_slot] = std::tuple<size_t, size_t, int>{src, dest, raw_edges[i].edge_kind};
+                edges[target_slot] = std::tuple<size_t, size_t, EDGE_KIND>{src, dest, raw_edges[i].edge_kind};
             }
             // 1. Storage bounds matching your structural limits
             std::array<size_t, 4096> edge_start_idx{};
@@ -603,7 +605,7 @@ enum CHOICE_KIND{
         template<size_t VCapacity, size_t ECapacity>
         constexpr void traverse_gbnf_graph(
             const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, int>, ECapacity>& edges,
+            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
             std::array<size_t, 4096>& child_counts,
             std::array<fixed_accumulator<256>, 4096>& vertex_rules
@@ -628,7 +630,7 @@ enum CHOICE_KIND{
                 size_t u = state.vertex_id;
                 const auto& u_obj = std::get<1>(vertices[u]);
 
-                if(u_obj.key==u8"properties" || u_obj.key==u8"additionalProperties" || u_obj.key==u8"definitions" || u_obj.key==u8"required" || u_obj.is_choice_node){
+                if(is_schema_keyword(u_obj.key)){
                     vertex_rules[u].append("\n# ");
                     vertex_rules[u].append(u_obj.key);
                     vertex_rules[u].append(" should not be connected to anything\n");
@@ -642,16 +644,19 @@ enum CHOICE_KIND{
                 if (state.current_edge_idx == 0) {
                     vertex_rules[u].append(u_obj.key);
                     vertex_rules[u].append("_rule ::= ");
-                    if (u_obj.obj_type == JSON_OBJECT) vertex_rules[u].append("\"{\" ws ");
+                    if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0) vertex_rules[u].append("\"{\" ws ");
                 }
 
                 // 2. Linear traversal over perfectly mapped edges
                 if (state.current_edge_idx < child_counts[u]) {
-                    size_t next_edge = edge_start_idx[u] + state.current_edge_idx++;
+                    size_t next_edge = edge_start_idx[u] + state.current_edge_idx;
                     size_t v = std::get<1>(edges[next_edge]);
                     const auto& v_obj = std::get<1>(vertices[v]);
 
-                    if (std::get<2>(edges[next_edge]) == EDGE_KIND_AST_CHOICE) {
+                    if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
+                        vertex_rules[u].append("\n# definitions syntax sugar\n");
+                    }
+                    else if (v_obj.is_choice_child) {
                         if (state.current_edge_idx > 1) vertex_rules[u].append(" | ");
                         vertex_rules[u].append(v_obj.key);
                         vertex_rules[u].append("_rule");
@@ -665,9 +670,10 @@ enum CHOICE_KIND{
                         visited[v] = true;
                         traversal_stack.push(DFSState{v, 0});
                     }
+                    state.current_edge_idx++;
                 } else {
                     // 3. Close rule on exit
-                    if (u_obj.obj_type == JSON_OBJECT) vertex_rules[u].append("\"}\"");
+                    if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0) vertex_rules[u].append("\"}\"");
                     vertex_rules[u].append("\n");
                     traversal_stack.pop();
                 }
@@ -676,7 +682,7 @@ enum CHOICE_KIND{
 
         // A simple constexpr flag helper to identify JSON Schema keywords
         constexpr bool is_schema_keyword(std::u8string_view key) {
-            return key == u8"properties" || key == u8"oneOf" || key == u8"anyOf" || 
+            return key == u8"properties" || key == u8"oneOf" || key == u8"anyOf" || key == u8"allOf" || key == u8"enum" || 
                 key == u8"items"      || key == u8"required" || key == u8"additionalProperties" ||
                 key == u8"$schema"    || key == u8"$id"       || key == u8"title" || key == u8"type";
         }    
@@ -703,6 +709,7 @@ enum CHOICE_KIND{
             if (key == u8"allOf") return CHOICE_KIND_ALLOF;
             if (key == u8"enum") return CHOICE_KIND_ENUM;
             if (key == u8"type") return CHOICE_KIND_TYPE;
+            if (key == u8"items") return CHOICE_KIND_ITEMS;
             return CHOICE_KIND_NONE;
         }
 
