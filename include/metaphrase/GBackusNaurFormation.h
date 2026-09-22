@@ -302,14 +302,17 @@ enum CHOICE_KIND{
                 if (cursor >= jsonBuffer.size()) break;
                 if(jsonBuffer[cursor]=='n' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)==u8"null"){
                     size_t idx1 = vertices.size();
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
-                    if(vertices.size()>1){
-                        // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
+                    std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
+                    EDGE_KIND edge_kind=getSchemaSyntax(current_key);
+                    if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
                     hitColon=false;
                     hitComma=false;
+                    keyStart = 0;
+                    keyEnd = 0;
                     cursor+=4;
                     continue;
                 }
@@ -323,12 +326,15 @@ enum CHOICE_KIND{
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size(), .is_choice_child=choice_flag});
-                    // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
-                    raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id});
-                    child_counts[parent_id]++;
+                    if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size(), .is_choice_child=choice_flag});
+                        raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id});
+                        child_counts[parent_id]++;
+                    }
                     hitColon=false;
                     hitComma=false;
+                    keyStart = 0;
+                    keyEnd = 0;
                     cursor+=4;
                     continue;
                 }
@@ -342,12 +348,15 @@ enum CHOICE_KIND{
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size(), .is_choice_child=choice_flag});
-                    // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
-                    raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, EDGE_KIND_AST});
-                    child_counts[parent_id]++;
+                    if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size(), .is_choice_child=choice_flag});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, EDGE_KIND_AST});
+                        child_counts[parent_id]++;
+                    }
                     hitColon=false;
                     hitComma=false;
+                    keyStart = 0;
+                    keyEnd = 0;
                     cursor+=5;
                     continue;
                 }
@@ -358,9 +367,12 @@ enum CHOICE_KIND{
                         current_key=u8"root";
                     }
                     // Check the key immediately to set the flag inline
-                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
+                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
+                    if(current_key==u8"definitions"){
+                        choice_flag=true;
+                    }
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    size_t syntax_id=(choice_flag) ? parent_id : 0;
+                    size_t syntax_id=(choice_flag || current_key==u8"definitions") ? parent_id : 0;
                     EDGE_KIND edge_kind=getSchemaSyntax(current_key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
@@ -375,6 +387,8 @@ enum CHOICE_KIND{
                     gbnfAcc.append(std::to_string(parent_id));
                     gbnfAcc.append(" ");
                     gbnfAcc.append(std::to_string(syntax_id));
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(std::to_string(choice_flag));
                     // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     keyStart = 0;
@@ -410,7 +424,7 @@ enum CHOICE_KIND{
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     
                     // Check the key immediately to set the flag inline
-                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
+                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     size_t syntax_id=(choice_flag) ? parent_id : 0;
                     EDGE_KIND edge_kind=getSchemaSyntax(current_key);
@@ -425,14 +439,18 @@ enum CHOICE_KIND{
                     gbnfAcc.append(jsonBuffer.substr(cursor, 1));
                     gbnfAcc.append(" ");
                     gbnfAcc.append(std::to_string(parent_id));
-                    gbnfAcc.append("\n");
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(std::to_string(syntax_id));
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(std::to_string(choice_flag));
+                    // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     keyStart = 0;
                     keyEnd = 0;
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                         raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
                         child_counts[parent_id]++;
-                        gbnfAcc.append("# Edge ");
+                        gbnfAcc.append(" # Edge ");
                         gbnfAcc.append(std::get<1>(vertices.back()).key);
                         gbnfAcc.append(" ");
                         gbnfAcc.append(std::to_string(parent_id));
@@ -445,7 +463,7 @@ enum CHOICE_KIND{
                         gbnfAcc.append("\n");
                     }
                     else {
-                        gbnfAcc.append("# no edge \n");
+                        gbnfAcc.append(" # no edge \n");
                     }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
@@ -521,6 +539,8 @@ enum CHOICE_KIND{
                     }
                     hitColon=false;
                     hitComma=false;
+                    keyStart = 0;
+                    keyEnd = 0;
                     
                 }
                 else if(jsonBuffer[cursor]==':'){
@@ -566,7 +586,8 @@ enum CHOICE_KIND{
                 size_t src = raw_edges[i].source;
                 size_t dest = raw_edges[i].destination;
                 
-                size_t target_slot = edge_offsets[src]++;
+                size_t target_slot = edge_offsets[src];
+                edge_offsets[src]++;
                 edges[target_slot] = std::tuple<size_t, size_t, EDGE_KIND>{src, dest, raw_edges[i].edge_kind};
             }
             // 1. Storage bounds matching your structural limits
@@ -597,7 +618,7 @@ enum CHOICE_KIND{
                 "number ::= [0-9]+ (\".\" [0-9]+)?\n"
                 "boolean ::= \"true\" | \"false\"\n"
                 "null ::= \"null\"\n\n\0"
-            );
+              );
             return sylvanmats::metaphrase::fixed_string<8193>(gbnfAcc.data(), gbnfAcc.size());
         }
 
@@ -657,11 +678,12 @@ enum CHOICE_KIND{
                     size_t v = std::get<1>(edges[next_edge]);
                     const auto& v_obj = std::get<1>(vertices[v]);
 
-                    if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
+
+                    if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS || (std::get<1>(vertices[v_obj.syntax_id]).key==u8"definitions")){
                         vertex_rules[u].append("\n# definitions syntax sugar\n");
                     }
                     else if (v_obj.is_choice_child) {
-                        if (state.current_edge_idx > 1) vertex_rules[u].append(" | ");
+                        if (state.current_edge_idx > 0) vertex_rules[u].append(" | ");
                         vertex_rules[u].append(v_obj.key);
                         if(v_obj.key.empty()){
                             vertex_rules[u].append("_branch_");
