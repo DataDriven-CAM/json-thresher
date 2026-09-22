@@ -255,6 +255,7 @@ enum CHOICE_KIND{
     CHOICE_KIND_ENUM=4,
     CHOICE_KIND_TYPE=5,
     CHOICE_KIND_ITEMS=6,
+    CHOICE_KIND_DEFINITIONS=7,
 };
 
     struct RawEdge {
@@ -368,9 +369,9 @@ enum CHOICE_KIND{
                     }
                     // Check the key immediately to set the flag inline
                     bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
-                    if(current_key==u8"definitions"){
-                        choice_flag=true;
-                    }
+                    // if(current_key==u8"definitions"){
+                    //     choice_flag=true;
+                    // }
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     size_t syntax_id=(choice_flag || current_key==u8"definitions") ? parent_id : 0;
                     EDGE_KIND edge_kind=getSchemaSyntax(current_key);
@@ -680,7 +681,7 @@ enum CHOICE_KIND{
 
 
                     if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS || (std::get<1>(vertices[v_obj.syntax_id]).key==u8"definitions")){
-                        vertex_rules[u].append("\n# definitions syntax sugar\n");
+                        // vertex_rules[u].append("\n# definitions syntax sugar\n");
                     }
                     else if (v_obj.is_choice_child) {
                         if (state.current_edge_idx > 0) vertex_rules[u].append(" | ");
@@ -746,6 +747,7 @@ enum CHOICE_KIND{
             if (key == u8"enum") return CHOICE_KIND_ENUM;
             if (key == u8"type") return CHOICE_KIND_TYPE;
             if (key == u8"items") return CHOICE_KIND_ITEMS;
+            if (key == u8"definitions") return CHOICE_KIND_DEFINITIONS; 
             return CHOICE_KIND_NONE;
         }
 
