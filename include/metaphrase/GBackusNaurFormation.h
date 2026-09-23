@@ -238,6 +238,13 @@ struct fixed_accumulator {
     constexpr std::string_view view() const { return std::string_view(data_buffer, current_len); }
 };
 
+enum class SCHEMA_CONTEXT {
+    SCHEMA_MODE,     // Keywords active (type, properties)
+    DATAKEY_MODE,    // Keywords suspended, treat keys as literal string fragments
+    REGEXKEY_MODE,   // Keywords suspended, treat keys as regex token rules
+    SYMBOLDEF_MODE   // Keys are internal references (under $defs)
+};
+
 enum EDGE_KIND{
     EDGE_KIND_AST=1,
     EDGE_KIND_AST_CHOICE=2,
@@ -262,6 +269,7 @@ enum CHOICE_KIND{
          size_t source;
          size_t destination;
          EDGE_KIND edge_kind=EDGE_KIND_AST;
+         SCHEMA_CONTEXT context=SCHEMA_CONTEXT::SCHEMA_MODE;
     };
 
     // Helper to keep track of traversal state without recursion
@@ -374,6 +382,7 @@ enum CHOICE_KIND{
                     // }
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     size_t syntax_id=(choice_flag || current_key==u8"definitions") ? parent_id : 0;
+                    SCHEMA_CONTEXT schemaContext=(current_key==u8"properties") ? SCHEMA_CONTEXT::DATAKEY_MODE : SCHEMA_CONTEXT::SCHEMA_MODE;
                     EDGE_KIND edge_kind=getSchemaSyntax(current_key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
@@ -395,7 +404,7 @@ enum CHOICE_KIND{
                     keyStart = 0;
                     keyEnd = 0;
                    if(!firstObject && vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                        raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
+                        raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind, schemaContext});
                         child_counts[parent_id]++;
                         gbnfAcc.append(" # Edge ");
                         gbnfAcc.append(std::get<1>(vertices.back()).key);
@@ -506,7 +515,7 @@ enum CHOICE_KIND{
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
-                        vertices.emplace(idx1, jobject{.obj_type=PAIR_VALUE, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
                         // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                         if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                             raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
@@ -668,8 +677,9 @@ enum CHOICE_KIND{
                     if(u_obj.key.empty()){
                         vertex_rules[u].append("_branch_");
                         emit_size_t_as_string(vertex_rules[u], u);
+                        vertex_rules[u].append("_rule");
                     }
-                    vertex_rules[u].append("_rule ::= ");
+                    vertex_rules[u].append(" ::= ");
                     if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0) vertex_rules[u].append("\"{\" ws ");
                 }
 
@@ -682,6 +692,26 @@ enum CHOICE_KIND{
 
                     if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS || (std::get<1>(vertices[v_obj.syntax_id]).key==u8"definitions")){
                         // vertex_rules[u].append("\n# definitions syntax sugar\n");
+                    }
+                    else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_STRING){
+                        vertex_rules[u].append(" \"");
+                        vertex_rules[u].append("string");
+                        vertex_rules[u].append("\"");
+                    }
+                    else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_NUMBER){
+                        vertex_rules[u].append(" \"");
+                        vertex_rules[u].append("number");
+                        vertex_rules[u].append("\"");
+                    }
+                    else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_BOOLEAN){
+                        vertex_rules[u].append(" \"");
+                        vertex_rules[u].append("boolean");
+                        vertex_rules[u].append("\"");
+                    }
+                    else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_NULL){
+                        vertex_rules[u].append(" \"");
+                        vertex_rules[u].append("null");
+                        vertex_rules[u].append("\"");
                     }
                     else if (v_obj.is_choice_child) {
                         if (state.current_edge_idx > 0) vertex_rules[u].append(" | ");
@@ -704,7 +734,8 @@ enum CHOICE_KIND{
                     
                     if (!visited[v]) {
                         visited[v] = true;
-                        traversal_stack.push(DFSState{v, 0});
+                        if(v_obj.obj_type!=JSON_STRING && v_obj.obj_type!=JSON_NUMBER && v_obj.obj_type!=JSON_BOOLEAN && v_obj.obj_type!=JSON_NULL)
+                            traversal_stack.push(DFSState{v, 0});
                     }
                     state.current_edge_idx++;
                 } else {
@@ -749,6 +780,16 @@ enum CHOICE_KIND{
             if (key == u8"items") return CHOICE_KIND_ITEMS;
             if (key == u8"definitions") return CHOICE_KIND_DEFINITIONS; 
             return CHOICE_KIND_NONE;
+        }
+
+        constexpr std::u8string_view getPrimitiveName(OBJECT_TYPE type) {
+            switch (type) {
+                case JSON_STRING: return u8"string";
+                case JSON_NUMBER: return u8"number";
+                case JSON_BOOLEAN: return u8"boolean";
+                case JSON_NULL: return u8"null";
+                default: return u8"";
+            }
         }
 
         template<size_t VCapacity>

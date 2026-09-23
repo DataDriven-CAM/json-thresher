@@ -329,7 +329,7 @@ namespace sylvanmats::io::json{
                 //     //std::cout<<"uid "<<uid<<std::endl;
                 //             return {uid, nm};
                 // });
-                dagGraph.reserve_edges(edges.size());
+            dagGraph.reserve_edges(edges.size());
             dagGraph.load_edges(edges, std::identity{});//[](const auto& c) -> graph::copyable_edge_t<graph::vertex_id_t<G>, int> { return {std::get<0>(c), std::get<1>(c), std::get<2>(c)}; });
     //auto endTime = std::chrono::high_resolution_clock::now();
     //std::cout << "scan time: " << std::chrono::duration_cast<std::chrono::nanoseconds>(edgeTime-startTime).count()*1.0e-9 << "s\n";

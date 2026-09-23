@@ -18,6 +18,7 @@
 #include <typeindex>
 #include <cmath>
 #include <stack>
+#include <valarray>
 
 #include "io/json/Path.h"
 
@@ -49,7 +50,7 @@ namespace sylvanmats::io::json{
         VALUE_NULL
     };
 
-using JsonValue = std::variant<std::monostate, std::string_view, const char*, double, int, unsigned int, long, unsigned long, long long, bool>;
+using JsonValue = std::variant<std::monostate, std::valarray<double>, std::string_view, const char*, double, int, unsigned int, long, unsigned long, long long, bool>;
 
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 
@@ -68,7 +69,7 @@ concept IsJsonKeyValuePair = requires {
         size_t id=0;
         size_t parent_id=0;
         size_t key_index=0;
-        mutable std::variant<std::monostate, std::string_view, const char*, double, int, unsigned int, long, unsigned long, long long, bool> value_index{std::monostate{}};
+        mutable std::variant<std::monostate, std::valarray<double>, std::string_view, const char*, double, int, unsigned int, long, unsigned long, long long, bool> value_index{std::monostate{}};
         size_t start=0;
         size_t end=0;
         size_t depth=0;
@@ -503,16 +504,17 @@ concept IsJsonKeyValuePair = requires {
             kv.append(key);
             kv.append("\": ");
             std::visit(overloaded {
-                [&kv](std::monostate)       { kv.append("\""); kv.append("[empty]"); kv.append("\""); },
-                [&kv](std::string_view val) { kv.append("\""); kv.append(val); kv.append("\""); },
-                [&kv](const char* val)      { kv.append("\""); kv.append(val); kv.append("\""); },
-                [&kv](double val)           { kv.append(std::to_string(val)); },
-                [&kv](int val)              { kv.append(std::to_string(val)); },
-                [&kv](unsigned int val)     { kv.append(std::to_string(val)); },
-                [&kv](long val)             { kv.append(std::to_string(val)); },
-                [&kv](unsigned long val)    { kv.append(std::to_string(val)); },
-                [&kv](long long val)        { kv.append(std::to_string(val)); },
-                [&kv](bool val)             { (val)? kv.append("true") : kv.append("false"); },
+                [&kv](std::monostate)            { kv.append("\""); kv.append("[empty]"); kv.append("\""); },
+                [&kv](std::valarray<double> val) { kv.append("\""); kv.append("[array]"); kv.append("\""); },
+                [&kv](std::string_view val)      { kv.append("\""); kv.append(val); kv.append("\""); },
+                [&kv](const char* val)           { kv.append("\""); kv.append(val); kv.append("\""); },
+                [&kv](double val)                { kv.append(std::to_string(val)); },
+                [&kv](int val)                   { kv.append(std::to_string(val)); },
+                [&kv](unsigned int val)          { kv.append(std::to_string(val)); },
+                [&kv](long val)                  { kv.append(std::to_string(val)); },
+                [&kv](unsigned long val)         { kv.append(std::to_string(val)); },
+                [&kv](long long val)             { kv.append(std::to_string(val)); },
+                [&kv](bool val)                  { (val)? kv.append("true") : kv.append("false"); },
             }, value);
             return std::move(kv);
         }
