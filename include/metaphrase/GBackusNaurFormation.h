@@ -9,7 +9,7 @@
 #include <concepts>
 #include <meta>
 #include <variant>
-#include <any>
+#include <format>
 #include <iostream>
 #include <functional>
 #include <ranges>
@@ -124,6 +124,8 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
         std::u8string_view value{};
         size_t depth=0;
         bool is_choice_child = false; // Flag to indicate if this node is syntax for alternation children
+        std::u8string_view deferred_ref_path; // e.g., "#/definitions/graph"
+        size_t resolved_target_idx = 0;     // Left at 0 for now
     };
 
     using G = graph::container::dynamic_adjacency_graph<graph::container::vov_graph_traits<int, jobject>>;
@@ -195,16 +197,16 @@ constexpr auto make_indent(size_t depth) {
 template<size_t MaxCapacity = 4096>
 struct fixed_accumulator {
     char data_buffer[MaxCapacity]{};
-    size_t current_len = 0;
+    size_t current_length = 0;
 
     constexpr fixed_accumulator() = default;
 
     constexpr void append(std::string_view sv) {
         // Enforce boundary space for the incoming data and the null terminator
-        if (current_len + sv.length() + 1 <= MaxCapacity) {
-            std::copy_n(sv.data(), sv.length(), data_buffer + current_len);
-            current_len += sv.length();
-            data_buffer[current_len] = '\0';
+        if (current_length + sv.length() + 1 <= MaxCapacity) {
+            std::copy_n(sv.data(), sv.length(), data_buffer + current_length);
+            current_length += sv.length();
+            data_buffer[current_length] = '\0';
         } else {
             // Triggers a hard compilation error if hit during constexpr evaluation
             throw std::out_of_range("fixed_accumulator overflow on append");
@@ -212,30 +214,74 @@ struct fixed_accumulator {
     }
 
     constexpr void append(std::u8string_view u8sv) {
-        if (current_len + u8sv.length() + 1 <= MaxCapacity) {
+        if (current_length + u8sv.length() + 1 <= MaxCapacity) {
             for (size_t i = 0; i < u8sv.length(); ++i) {
                 // static_cast from char8_t to char is fully permitted in constexpr
-                data_buffer[current_len + i] = static_cast<char>(u8sv[i]);
+                data_buffer[current_length + i] = static_cast<char>(u8sv[i]);
             }
-            current_len += u8sv.length();
-            data_buffer[current_len] = '\0';
+            current_length += u8sv.length();
+            data_buffer[current_length] = '\0';
         } else {
             throw std::out_of_range("fixed_accumulator overflow on u8 append");
         }
     }
 
+        // Appends a u8 string wrapped in quotes, automatically escaping GBNF conflicts
+    constexpr void append_quoted_escaped(std::u8string_view u8sv) {
+        if (current_length + u8sv.length() + 1 <= MaxCapacity) {
+
+            // 1. Opening structural quote for GBNF literal matching
+            data_buffer[current_length++] = '"';
+
+            // 2. Transcoding pass with automatic inline escaping
+            for (char8_t code_unit : u8sv) {
+                const char c = static_cast<char>(code_unit);
+
+                switch (c) {
+                    case '"':
+                        // Map a literal JSON quote to \" for GBNF terminal matching
+                        data_buffer[current_length++] = '\\';
+                        data_buffer[current_length++] = '"';
+                        break;
+                    case '\\':
+                        // Escape backslashes
+                        data_buffer[current_length++] = '\\';
+                        data_buffer[current_length++] = '\\';
+                        break;
+                    case '\n':
+                        // Flatten real newlines so they don't break the GBNF layout line structure
+                        data_buffer[current_length++] = '\\';
+                        data_buffer[current_length++] = 'n';
+                        break;
+                    case '\t':
+                        data_buffer[current_length++] = '\\';
+                        data_buffer[current_length++] = 't';
+                        break;
+                    default:
+                        data_buffer[current_length++] = c;
+                        break;
+                }
+            }
+
+            // 3. Closing structural quote for GBNF literal matching
+            data_buffer[current_length++] = '"';
+        } else {
+            throw std::out_of_range("fixed_accumulator overflow on u8 append_quoted_escaped");
+        }
+    }
+
     constexpr void push_back(char c) {
-        if (current_len + 2 <= MaxCapacity) {
-            data_buffer[current_len++] = c;
-            data_buffer[current_len] = '\0';
+        if (current_length + 2 <= MaxCapacity) {
+            data_buffer[current_length++] = c;
+            data_buffer[current_length] = '\0';
         } else {
             throw std::out_of_range("fixed_accumulator overflow on push_back");
         }
     }
 
     constexpr const char* data() const { return data_buffer; }
-    constexpr size_t size() const { return current_len; }
-    constexpr std::string_view view() const { return std::string_view(data_buffer, current_len); }
+    constexpr size_t size() const { return current_length; }
+    constexpr std::string_view view() const { return std::string_view(data_buffer, current_length); }
 };
 
 enum SCHEMA_CONTEXT {
@@ -513,12 +559,17 @@ enum CHOICE_KIND{
                         SCHEMA_CONTEXT schemaContext=(current_key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                         EDGE_KIND edge_kind=getSchemaSyntax(current_key);
                         size_t syntax_id=(edge_kind==EDGE_KIND_PROPERTIES) ? parent_id : 0;
+                        std::u8string_view deferred_ref_path=u8"";
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
                         else if (current_key == u8"$schema" || current_key == u8"$id" || current_key == u8"title" || current_key == u8"description") {
                             cursor++;
                             continue;
+                        }
+                        else if(current_key==u8"$ref"){
+                            schemaContext=DATAKEY_MODE;
+                            deferred_ref_path=jsonBuffer.substr(startOffset, cursor - startOffset);
                         }
                         if(current_key==u8"type"){
                             gbnfAcc.append("\n# Primitive string ");
@@ -531,10 +582,10 @@ enum CHOICE_KIND{
                             gbnfAcc.append(std::to_string(parent_id));
                             gbnfAcc.append("\n");
                         }
-                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
                         // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                         if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                            raw_edges.push(RawEdge{parent_id, idx1, edge_kind});
+                            raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                             child_counts[parent_id]++;
                         }
                         hitColon=false;
@@ -583,6 +634,12 @@ enum CHOICE_KIND{
                     cursor++;
                 }
                 cursor++;
+            }
+            for (auto& vertex : vertices) {
+                if (!std::get<1>(vertex).deferred_ref_path.empty()) {
+                    // Look up which vertex index owns this definition name
+                    std::get<1>(vertex).resolved_target_idx = resolve_ref_pointer(vertices, std::get<1>(vertex).deferred_ref_path);
+                }
             }
             
             std::array<size_t, 4096> edge_offsets{};
@@ -710,9 +767,16 @@ enum CHOICE_KIND{
                         // vertex_rules[u].append("\n# definitions syntax sugar\n");
                     }
                     else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_STRING){
-                        vertex_rules[u].append(" \"");
-                        vertex_rules[u].append("string");
-                        vertex_rules[u].append("\"");
+                        if(std::get<3>(edges[next_edge])==DATAKEY_MODE){
+                            // std::string utf8_str(v_obj.value.begin(), v_obj.value.end());
+                            // std::string result = std::format("\"{}\"", utf8_str);
+                            vertex_rules[u].append_quoted_escaped(v_obj.value);
+                        }
+                        else{
+                            vertex_rules[u].append(" \"");
+                            vertex_rules[u].append("string");
+                            vertex_rules[u].append("\"");
+                        }
                     }
                     else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_NUMBER){
                         vertex_rules[u].append(" \"");
@@ -813,8 +877,8 @@ enum CHOICE_KIND{
 
         template<size_t VCapacity>
         constexpr size_t resolve_ref_pointer(
-            std::u8string_view ref_path, 
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices
+            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            std::u8string_view ref_path
         ) {
             // Stripping the leading #/ if present
             if (ref_path.starts_with(u8"#/")) {
