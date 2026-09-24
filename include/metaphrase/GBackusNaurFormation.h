@@ -238,7 +238,7 @@ struct fixed_accumulator {
     constexpr std::string_view view() const { return std::string_view(data_buffer, current_len); }
 };
 
-enum class SCHEMA_CONTEXT {
+enum SCHEMA_CONTEXT {
     SCHEMA_MODE,     // Keywords active (type, properties)
     DATAKEY_MODE,    // Keywords suspended, treat keys as literal string fragments
     REGEXKEY_MODE,   // Keywords suspended, treat keys as regex token rules
@@ -286,9 +286,9 @@ enum CHOICE_KIND{
         GBackusNaurFormation& operator=(const GBackusNaurFormation& orig) = delete;
         GBackusNaurFormation& operator=(GBackusNaurFormation&& orig) = delete;
         ~GBackusNaurFormation() = default;
-        constexpr fixed_string<8193> operator ()(std::u8string_view jsonBuffer){
+        constexpr fixed_string<16384> operator ()(std::u8string_view jsonBuffer){
             fixed_stack<std::tuple<size_t, jobject>, 4096> vertices;
-            fixed_stack<std::tuple<size_t, size_t, EDGE_KIND>, 4095> edges;
+            fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, 4095> edges;
             fixed_stack<size_t, 64> parentStack;
             fixed_stack<RawEdge, 4095> raw_edges;
 
@@ -377,13 +377,10 @@ enum CHOICE_KIND{
                     }
                     // Check the key immediately to set the flag inline
                     bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
-                    // if(current_key==u8"definitions"){
-                    //     choice_flag=true;
-                    // }
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     size_t syntax_id=(choice_flag || current_key==u8"definitions") ? parent_id : 0;
-                    SCHEMA_CONTEXT schemaContext=(current_key==u8"properties") ? SCHEMA_CONTEXT::DATAKEY_MODE : SCHEMA_CONTEXT::SCHEMA_MODE;
-                    EDGE_KIND edge_kind=getSchemaSyntax(current_key);
+                    SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
+                    EDGE_KIND edge_kind=(schemaContext==SCHEMA_MODE)? getSchemaSyntax(current_key) : EDGE_KIND_AST;
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
@@ -399,12 +396,14 @@ enum CHOICE_KIND{
                     gbnfAcc.append(std::to_string(syntax_id));
                     gbnfAcc.append(" ");
                     gbnfAcc.append(std::to_string(choice_flag));
+                    gbnfAcc.append(" ");
+                    gbnfAcc.append(std::to_string(schemaContext));
                     // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     keyStart = 0;
                     keyEnd = 0;
                    if(!firstObject && vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                        raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind, schemaContext});
+                        raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
                         gbnfAcc.append(" # Edge ");
                         gbnfAcc.append(std::get<1>(vertices.back()).key);
@@ -437,6 +436,7 @@ enum CHOICE_KIND{
                     bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     size_t syntax_id=(choice_flag) ? parent_id : 0;
+                    SCHEMA_CONTEXT schemaContext=(current_key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                     EDGE_KIND edge_kind=getSchemaSyntax(current_key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
@@ -458,7 +458,7 @@ enum CHOICE_KIND{
                     keyStart = 0;
                     keyEnd = 0;
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                        raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
+                        raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind, schemaContext});
                         child_counts[parent_id]++;
                         gbnfAcc.append(" # Edge ");
                         gbnfAcc.append(std::get<1>(vertices.back()).key);
@@ -510,21 +510,37 @@ enum CHOICE_KIND{
                         size_t idx1 = vertices.size();
                         std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                         size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
+                        SCHEMA_CONTEXT schemaContext=(current_key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                         EDGE_KIND edge_kind=getSchemaSyntax(current_key);
                         size_t syntax_id=(edge_kind==EDGE_KIND_PROPERTIES) ? parent_id : 0;
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
+                        else if (current_key == u8"$schema" || current_key == u8"$id" || current_key == u8"title" || current_key == u8"description") {
+                            cursor++;
+                            continue;
+                        }
+                        if(current_key==u8"type"){
+                            gbnfAcc.append("\n# Primitive string ");
+                            gbnfAcc.append(current_key);
+                            gbnfAcc.append(": ");
+                            gbnfAcc.append(jsonBuffer.substr(startOffset, cursor - startOffset));
+                            gbnfAcc.append(" ");
+                            gbnfAcc.append(std::to_string(idx1));
+                            gbnfAcc.append(" ");
+                            gbnfAcc.append(std::to_string(parent_id));
+                            gbnfAcc.append("\n");
+                        }
                         vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
                         // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                         if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                            raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
+                            raw_edges.push(RawEdge{parent_id, idx1, edge_kind});
                             child_counts[parent_id]++;
                         }
                         hitColon=false;
                         hitComma=false;
                     }
-                    cursor++;
+                    //cursor++;
                     
                 }
                 else if(jsonBuffer[cursor]=='-' || jsonBuffer[cursor]=='.' || (jsonBuffer[cursor]>='0' && jsonBuffer[cursor]<='9')){
@@ -598,7 +614,7 @@ enum CHOICE_KIND{
                 
                 size_t target_slot = edge_offsets[src];
                 edge_offsets[src]++;
-                edges[target_slot] = std::tuple<size_t, size_t, EDGE_KIND>{src, dest, raw_edges[i].edge_kind};
+                edges[target_slot] = std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>{src, dest, raw_edges[i].edge_kind, raw_edges[i].context};
             }
             // 1. Storage bounds matching your structural limits
             std::array<size_t, 4096> edge_start_idx{};
@@ -629,14 +645,14 @@ enum CHOICE_KIND{
                 "boolean ::= \"true\" | \"false\"\n"
                 "null ::= \"null\"\n\n\0"
               );
-            return sylvanmats::metaphrase::fixed_string<8193>(gbnfAcc.data(), gbnfAcc.size());
+            return sylvanmats::metaphrase::fixed_string<16384>(gbnfAcc.data(), gbnfAcc.size());
         }
 
     private:
         template<size_t VCapacity, size_t ECapacity>
         constexpr void traverse_gbnf_graph(
             const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND>, ECapacity>& edges,
+            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
             std::array<size_t, 4096>& child_counts,
             std::array<fixed_accumulator<256>, 4096>& vertex_rules
@@ -661,7 +677,7 @@ enum CHOICE_KIND{
                 size_t u = state.vertex_id;
                 const auto& u_obj = std::get<1>(vertices[u]);
 
-                if(is_schema_keyword(u_obj.key)){
+                if(is_schema_keyword(u_obj.key) && u_obj.key!=u8"type"){
                     vertex_rules[u].append("\n# ");
                     vertex_rules[u].append(u_obj.key);
                     vertex_rules[u].append(" should not be connected to anything\n");
@@ -757,8 +773,11 @@ enum CHOICE_KIND{
 
         template<size_t VCapacity>
         constexpr bool hasParentalSyntax(const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, fixed_stack<size_t, 64>& parentStack){
-            if(parentStack.size()>=2 && (getSchemaSyntax(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE))
-                return true;
+            if(parentStack.size()>=2 && (getSchemaSyntax(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE)){
+                if(parentStack.size()>=3 && getSchemaSyntax(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_PROPERTIES)
+                    return false;
+                    return true;
+            }
             else return false;
         }
 
