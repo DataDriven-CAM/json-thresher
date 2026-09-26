@@ -13,7 +13,8 @@
         "doctest": "onqtam/doctest",
         "fmt": "fmtlib/fmt",
         "mime-db": "1.42.0",
-        "json-graph-specification": "jsongraph/json-graph-specification"
+        "json-graph-specification": "jsongraph/json-graph-specification",
+        "llama": "ggml-org/llama.cpp#master"
     },
     "scripts": {
         "clean": "make clean",

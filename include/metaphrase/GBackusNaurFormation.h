@@ -20,11 +20,6 @@
 #include <stack>
 #include <algorithm>
 
-#include "graph/container/dynamic_graph.hpp"
-#include <graph/container/traits/vov_graph_traits.hpp>
-#include "graph/views/incidence.hpp"
-#include "graph/views/vertexlist.hpp"
-
 namespace sylvanmats::metaphrase{
 
 // Structural fixed_string template matching our performance pipeline
@@ -127,53 +122,6 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
         std::u8string_view deferred_ref_path; // e.g., "#/definitions/graph"
         size_t resolved_target_idx = 0;     // Left at 0 for now
     };
-
-    using G = graph::container::dynamic_adjacency_graph<graph::container::vov_graph_traits<int, jobject>>;
-
-    consteval int gbnfBuffer(std::u8string_view jsonBuffer){
-        G dagGraph;
-        fixed_stack<graph::copyable_vertex_t<size_t, jobject>, 4096> vertices;
-        fixed_stack<graph::copyable_edge_t<size_t, int>, 4095> edges;
-        fixed_stack<size_t, 64> parentStack;
-
-        std::span s={jsonBuffer};
-        std::span<const char8_t>::iterator it=s.begin();
-        size_t keyStart=0;
-        size_t keyEnd=0;
-        bool inString = false;
-        while(it!=s.end()){
-            if (*it == '"' && (it == s.begin() || *std::prev(it) != '\\')) {
-                if(inString){
-                    keyEnd=it-s.begin();
-                }
-                else{
-                    keyStart=it-s.begin();
-                }
-                inString = !inString;
-                it++;
-                continue;
-            }
-            if(*it=='{'){
-                vertices.push(graph::copyable_vertex_t<size_t, jobject>{vertices.size(), jobject{.id=vertices.size(), .parent_id=parentStack.back(), .key=std::u8string_view(s.begin()+keyStart, s.begin()+keyEnd), .value=std::u8string_view(it, it+1), .depth=parentStack.size()}});
-                if(vertices.size()>1)edges.push(graph::copyable_edge_t<size_t, int>{vertices.back().value.parent_id, vertices.back().value.id, 1});
-                parentStack.push(vertices.back().id);
-
-            }
-            else if(*it=='}'){
-                parentStack.pop();
-            }
-            it++;
-        }
-        // dagGraph.reserve_vertices(vertices.size());
-        // dagGraph.load_vertices(vertices, std::identity{});//, [&](const auto& nm) -> graph::copyable_vertex_t<size_t, sylvanmats::io::json::jobject> {
-        // dagGraph.reserve_edges(edges.size());
-        // dagGraph.load_edges(edges, std::identity{});//[](const auto& c) -> graph::copyable_edge_t<graph::vertex_id_t<G>, int> { return {std::get<0>(c), std::get<1>(c), std::get<2>(c)}; });
-        // std::string gbnf;
-        // for(size_t i=0;i<objCount;i++){
-        //     gbnf.append(sylvanmats::metaphrase::make_gbnf_rule<"node", R"("{ \"id\": " string ", \"type\": " type ", \"title\": " string ", \"container-title\": " string ", \"issued\": " dateBlock ", \"author\": " authorList " }")">());
-        // }
-        return vertices.size();
-    }
 
 template<typename T, size_t Capacity>
 struct fixed_pool {
@@ -358,7 +306,7 @@ enum CHOICE_KIND{
                 if(jsonBuffer[cursor]=='n' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)==u8"null"){
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
-                    EDGE_KIND edge_kind=getSchemaSyntax(current_key);
+                    EDGE_KIND edge_kind=getEdgeKind(current_key);
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
@@ -377,7 +325,7 @@ enum CHOICE_KIND{
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
                     size_t syntax_id=(choice_flag) ? parent_id : 0;
-                    EDGE_KIND edge_kind=getSchemaSyntax(current_key);
+                    EDGE_KIND edge_kind=getEdgeKind(current_key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
@@ -399,7 +347,7 @@ enum CHOICE_KIND{
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
                     size_t syntax_id=(choice_flag) ? parent_id : 0;
-                    EDGE_KIND edge_kind=getSchemaSyntax(current_key);
+                    EDGE_KIND edge_kind=getEdgeKind(current_key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
@@ -426,7 +374,7 @@ enum CHOICE_KIND{
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     size_t syntax_id=(choice_flag || current_key==u8"definitions") ? parent_id : 0;
                     SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
-                    EDGE_KIND edge_kind=(schemaContext==SCHEMA_MODE)? getSchemaSyntax(current_key) : EDGE_KIND_AST;
+                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
@@ -448,7 +396,7 @@ enum CHOICE_KIND{
                     vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     keyStart = 0;
                     keyEnd = 0;
-                   if(!firstObject && vertices.size()>1 && edge_kind==EDGE_KIND_AST){
+                   if(!firstObject && vertices.size()>1 && (schemaContext==DATAKEY_MODE || !is_schema_keyword(current_key))){
                         raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
                         gbnfAcc.append(" # Edge ");
@@ -482,8 +430,8 @@ enum CHOICE_KIND{
                     bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                     size_t syntax_id=(choice_flag) ? parent_id : 0;
-                    SCHEMA_CONTEXT schemaContext=(current_key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
-                    EDGE_KIND edge_kind=getSchemaSyntax(current_key);
+                    SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
+                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
@@ -503,7 +451,7 @@ enum CHOICE_KIND{
                     vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     keyStart = 0;
                     keyEnd = 0;
-                    if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
+                    if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || !is_schema_keyword(current_key))){
                         raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind, schemaContext});
                         child_counts[parent_id]++;
                         gbnfAcc.append(" # Edge ");
@@ -555,10 +503,11 @@ enum CHOICE_KIND{
                     else{
                         size_t idx1 = vertices.size();
                         std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
+                        bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
                         size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                        SCHEMA_CONTEXT schemaContext=(current_key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
-                        EDGE_KIND edge_kind=getSchemaSyntax(current_key);
-                        size_t syntax_id=(edge_kind==EDGE_KIND_PROPERTIES) ? parent_id : 0;
+                        SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
+                        EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
+                        size_t syntax_id=(std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? parent_id : 0;
                         std::u8string_view deferred_ref_path=u8"";
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
@@ -580,14 +529,42 @@ enum CHOICE_KIND{
                             gbnfAcc.append(std::to_string(idx1));
                             gbnfAcc.append(" ");
                             gbnfAcc.append(std::to_string(parent_id));
-                            gbnfAcc.append("\n");
+                            // gbnfAcc.append("\n");
                         }
-                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
+                    //     if(vertices.size()<10){
+                    // gbnfAcc.append("# key pair ");
+                    // gbnfAcc.append(current_key);
+                    // gbnfAcc.append(" ");
+                    // gbnfAcc.append(jsonBuffer.substr(startOffset, cursor - startOffset));
+                    // gbnfAcc.append(" ");
+                    // gbnfAcc.append(std::to_string(idx1));
+                    // gbnfAcc.append(" ");
+                    // gbnfAcc.append(std::to_string(parent_id));
+                    // gbnfAcc.append(" ");
+                    // gbnfAcc.append(std::to_string(syntax_id));
+                    // gbnfAcc.append(" ");
+                    // gbnfAcc.append(std::to_string(schemaContext));
+                    //             }
+                         vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
                         // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
-                        if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
+                        if(vertices.size()>1 && (schemaContext==SCHEMA_MODE)){
+                            if(vertices.size()<10){
+                        gbnfAcc.append(" # Edge ");
+                        gbnfAcc.append(std::get<1>(vertices.back()).key);
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(parent_id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(std::get<1>(vertices.back()).id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(edge_kind));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        gbnfAcc.append("\n");
+                            }
                             raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                             child_counts[parent_id]++;
                         }
+                        else if(vertices.size()<10)gbnfAcc.append(" # no edge \n");
                         hitColon=false;
                         hitComma=false;
                     }
@@ -681,7 +658,7 @@ enum CHOICE_KIND{
                 sum += child_counts[i];
             }
 
-            std::array<fixed_accumulator<256>, 4096> vertex_rules{};
+            std::array<fixed_accumulator<512>, 8192> vertex_rules{};
             traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, vertex_rules);
             // fixed_accumulator<65536> gbnfAcc{};
             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
@@ -712,7 +689,7 @@ enum CHOICE_KIND{
             const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
             std::array<size_t, 4096>& child_counts,
-            std::array<fixed_accumulator<256>, 4096>& vertex_rules
+            std::array<fixed_accumulator<512>, 8192>& vertex_rules
         ) {
             if (vertices.size() <= 1) return;
             // 1. Explicit visitor stack replacing runtime/compiler call recursion
@@ -766,18 +743,44 @@ enum CHOICE_KIND{
                     if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS || (std::get<1>(vertices[v_obj.syntax_id]).key==u8"definitions")){
                         // vertex_rules[u].append("\n# definitions syntax sugar\n");
                     }
-                    else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_STRING){
-                        if(std::get<3>(edges[next_edge])==DATAKEY_MODE){
-                            // std::string utf8_str(v_obj.value.begin(), v_obj.value.end());
-                            // std::string result = std::format("\"{}\"", utf8_str);
-                            vertex_rules[u].append_quoted_escaped(v_obj.value);
-                        }
-                        else{
-                            vertex_rules[u].append(" \"");
-                            vertex_rules[u].append("string");
-                            vertex_rules[u].append("\"");
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES){
+                        size_t inner_edge = edge_start_idx[v] + 0;
+                        size_t w = std::get<1>(edges[inner_edge]);
+                        const auto& w_obj = std::get<1>(vertices[w]);
+                        if(w_obj.key==u8"type"){
+                          vertex_rules[u].append("\"\\\"");
+                          vertex_rules[u].append(v_obj.key);
+                          vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                          vertex_rules[u].append(w_obj.value);
+                          visited[v]=true;
+                          visited[w]=true;
                         }
                     }
+                    // else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_STRING && v_obj.key==u8"type"){
+                    //       vertex_rules[u].append("\"\\\"");
+                    //       vertex_rules[u].append(u_obj.key);
+                    //       vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                    //       vertex_rules[u].append(v_obj.value);
+                    //       visited[v]=true;
+                    // } 
+                    // else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_STRING){
+                    //     if(std::get<3>(edges[next_edge])==DATAKEY_MODE){
+                    //         // std::string utf8_str(v_obj.value.begin(), v_obj.value.end());
+                    //         // std::string result = std::format("\"{}\"", utf8_str);
+                    //         vertex_rules[u].append_quoted_escaped(v_obj.value);
+                    //     }
+                    //     // else if(v_obj.syntax_id>0){
+                    //     //     vertex_rules[u].append(v_obj.key);
+                    //     //     vertex_rules[u].append(" : \"");
+                    //     //     vertex_rules[u].append(v_obj.value);
+                    //     //     vertex_rules[u].append("\" ");
+                    //     // }
+                    //     else{
+                    //         vertex_rules[u].append(" \"");
+                    //         vertex_rules[u].append("string");
+                    //         vertex_rules[u].append("\"");
+                    //     }
+                    // }
                     else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_NUMBER){
                         vertex_rules[u].append(" \"");
                         vertex_rules[u].append("number");
@@ -809,7 +812,13 @@ enum CHOICE_KIND{
                             emit_size_t_as_string(vertex_rules[u], v);
                             vertex_rules[u].append("_rule");
                         }
-                        else vertex_rules[u].append(v_obj.key);
+                        else{
+                        //   vertex_rules[u].append("\"\\\"");
+                        //   vertex_rules[u].append(v_obj.key);
+                        //   vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                          //vertex_rules[u].append(v_obj.value);
+                        }
+
                     }
                     
                     if (!visited[v]) {
@@ -837,15 +846,15 @@ enum CHOICE_KIND{
 
         template<size_t VCapacity>
         constexpr bool hasParentalSyntax(const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, fixed_stack<size_t, 64>& parentStack){
-            if(parentStack.size()>=2 && (getSchemaSyntax(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE)){
-                if(parentStack.size()>=3 && getSchemaSyntax(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_PROPERTIES)
+            if(parentStack.size()>=2 && (getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE)){
+                if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_PROPERTIES)
                     return false;
                     return true;
             }
             else return false;
         }
 
-        constexpr EDGE_KIND getSchemaSyntax(std::u8string_view key) {
+        constexpr EDGE_KIND getEdgeKind(std::u8string_view key) {
             if (key == u8"properties") return EDGE_KIND_PROPERTIES;
             if (key == u8"additionalProperties") return EDGE_KIND_ADDITIONAL_PROPERTIES;
             if (key == u8"definitions") return EDGE_KIND_DEFINITIONS;
