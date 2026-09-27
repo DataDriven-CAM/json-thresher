@@ -341,8 +341,8 @@ TEST_CASE("test reading package.json") {
             count++;
         });
         CHECK_EQ(count, 4);
-        CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 23);
-        CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 22);
+        CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 24);
+        CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 23);
                     /*std::cout<<"display rep graph "<<std::endl;
    directedness dir=directedness::directed;
    std::string_view arrows, rev_arrows = "dir=back,arrowhead=vee,";

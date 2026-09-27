@@ -15,6 +15,10 @@
 #include <array>
 #include <format>
 #include <concepts>
+#include <filesystem>
+#include <unistd.h>
+#include <spawn.h>
+#include <sys/wait.h>
 
 #define protected public
 #include "io/json/Binder.h"
@@ -26,6 +30,7 @@
 
 #include "metaphrase/GBackusNaurFormation.h"
 
+    extern char** environ;
 
 TEST_SUITE("compile-time"){
 
@@ -39,21 +44,255 @@ TEST_CASE("test generating grammar components") {
 
 }
 
-TEST_CASE("test dfs"){
+TEST_CASE("test simple primivitives"){
   try{
     // Ensure static storage duration so the view points to persistent data
     static constexpr std::u8string_view sample_schema = u8R"({
-        "type": "object",
-        "properties": {
-            "id": "number",
-            "name": "string"
-        }
-    })";
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": { "type": "number" },
+    "name": { "type": "string" }
+  }
+})";
 
-        sylvanmats::metaphrase::GBackusNaurFormation gbnf_parser{};
-    constexpr auto generated_rules = gbnf_parser(sample_schema);
+    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
+    constexpr std::string_view gbnfView=gbnf.view();
+    std::cout << gbnfView<<std::endl;
+    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
 
-    std::cout << generated_rules.view();
+    std::filesystem::path tmpDir=std::filesystem::temp_directory_path();
+    std::string grammarPath = (tmpDir / "schema_test.gbnf").string();
+    std::string jsonPath = (tmpDir / "schema_test.json").string();
+    std::ofstream g_file(grammarPath);
+     g_file << gbnfView;
+     g_file.close();
+     std::string jsonContent=R"({"id": 100, "name": "Alice"})";
+    std::ofstream j_file(jsonPath);
+     j_file << jsonContent;
+     j_file.close();
+    std::array<const char*, 4> args = {
+        "test-gbnf-validator", 
+        grammarPath.data(), 
+        jsonPath.data(), 
+        nullptr
+    };
+
+    pid_t pid;
+    // Spawns the executable using PATH resolution (the 'p' variant)
+    int spawn_result = posix_spawnp(&pid, args[0], nullptr, nullptr, 
+                                    const_cast<char* const*>(args.data()), environ);
+    
+    if (spawn_result != 0) {
+        // Target binary was not found or failed to execute completely
+        FAIL("Failed to spawn grammar validator process");
+    }
+
+    // Block synchronously until the specific validator process closes
+    int status;
+    waitpid(pid, &status, 0);
+
+    // Returns true if test-gbnf-validator exits cleanly with return code 0
+    WIFEXITED(status) && WEXITSTATUS(status) == 0;
+  }
+  catch(std::out_of_range& e){
+    std::cout << "out of range "<<e.what()<<std::endl;
+  }
+  catch(std::exception& e){
+    std::cout << "exception "<<e.what()<<std::endl;
+  }
+}
+
+TEST_CASE("test homogeneous vector"){
+  try{
+    // Ensure static storage duration so the view points to persistent data
+    static constexpr std::u8string_view sample_schema = u8R"({
+  "$schema": "https://json-schema.org",
+  "type": "object",
+  "properties": {
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["tags"],
+  "additionalProperties": false
+})";
+
+    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
+    constexpr std::string_view gbnfView=gbnf.view();
+    std::cout << gbnfView<<std::endl;
+    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+  }
+  catch(std::out_of_range& e){
+    std::cout << "out of range "<<e.what()<<std::endl;
+  }
+  catch(std::exception& e){
+    std::cout << "exception "<<e.what()<<std::endl;
+  }
+}
+
+TEST_CASE("test fixed array / tuple"){
+  try{
+    // Ensure static storage duration so the view points to persistent data
+    static constexpr std::u8string_view sample_schema = u8R"({
+  "$schema": "https://json-schema.org",
+  "type": "object",
+  "properties": {
+    "point_2d": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "number" },
+        { "type": "number" }
+      ],
+      "items": false
+    }
+  },
+  "required": ["point_2d"],
+  "additionalProperties": false
+})";
+
+    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
+    constexpr std::string_view gbnfView=gbnf.view();
+    std::cout << gbnfView<<std::endl;
+    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+  }
+  catch(std::out_of_range& e){
+    std::cout << "out of range "<<e.what()<<std::endl;
+  }
+  catch(std::exception& e){
+    std::cout << "exception "<<e.what()<<std::endl;
+  }
+}
+
+TEST_CASE("test optional fields"){
+  try{
+    // Ensure static storage duration so the view points to persistent data
+    static constexpr std::u8string_view sample_schema = u8R"({
+  "$schema": "https://json-schema.org",
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "age": { "type": "integer" }
+  },
+  "required": ["name"],
+  "additionalProperties": false
+})";
+
+    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
+    constexpr std::string_view gbnfView=gbnf.view();
+    std::cout << gbnfView<<std::endl;
+    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+  }
+  catch(std::out_of_range& e){
+    std::cout << "out of range "<<e.what()<<std::endl;
+  }
+  catch(std::exception& e){
+    std::cout << "exception "<<e.what()<<std::endl;
+  }
+}
+
+TEST_CASE("test nested structural dependency"){
+  try{
+    // Ensure static storage duration so the view points to persistent data
+    static constexpr std::u8string_view sample_schema = u8R"({
+  "$schema": "https://json-schema.org",
+  "type": "object",
+  "properties": {
+    "user": { "$ref": "#/$defs/SimpleUser" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["user", "tags"],
+  "additionalProperties": false,
+  "$defs": {
+    "SimpleUser": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "active"],
+      "additionalProperties": false
+    }
+  }
+})";
+
+    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
+    constexpr std::string_view gbnfView=gbnf.view();
+    std::cout << gbnfView<<std::endl;
+    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+  }
+  catch(std::out_of_range& e){
+    std::cout << "out of range "<<e.what()<<std::endl;
+  }
+  catch(std::exception& e){
+    std::cout << "exception "<<e.what()<<std::endl;
+  }
+}
+
+TEST_CASE("test polymorphism"){
+  try{
+    // Ensure static storage duration so the view points to persistent data
+    static constexpr std::u8string_view sample_schema = u8R"({
+  "$schema": "https://json-schema.org",
+  "type": "object",
+  "properties": {
+    "response": {
+      "oneOf": [
+        { "$ref": "#/$defs/SuccessPayload" },
+        { "$ref": "#/$defs/ErrorPayload" }
+      ]
+    }
+  },
+  "required": ["response"],
+  "additionalProperties": false,
+  "$defs": {
+    "SuccessPayload": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "const": "success" },
+        "data": { "type": "string" }
+      },
+      "required": ["status", "data"],
+      "additionalProperties": false
+    },
+    "ErrorPayload": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "const": "error" },
+        "code": { "type": "integer" }
+      },
+      "required": ["status", "code"],
+      "additionalProperties": false
+    }
+  }
+})";
+
+    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
+    constexpr std::string_view gbnfView=gbnf.view();
+    std::cout << gbnfView<<std::endl;
+    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
   }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
