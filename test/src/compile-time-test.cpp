@@ -32,6 +32,61 @@
 
     extern char** environ;
 
+    void target_test_environment() {
+    std::filesystem::path root = std::filesystem::current_path();
+    
+    // Resolve clean absolute paths
+    std::filesystem::path bin_dir = root / "../cpp_modules/llama/dist/bin";
+    std::filesystem::path lib_dir = root / "../cpp_modules/llama/dist/lib";
+
+    // Append to PATH
+    const char* old_path = std::getenv("PATH");
+    std::string new_path = bin_dir.string() + ":" + (old_path ? old_path : "");
+    setenv("PATH", new_path.c_str(), 1);
+
+    // Append to LD_LIBRARY_PATH
+    const char* old_ld = std::getenv("LD_LIBRARY_PATH");
+    std::string new_ld = lib_dir.string() + ":" + (old_ld ? old_ld : "");
+    setenv("LD_LIBRARY_PATH", new_ld.c_str(), 1);
+}
+
+bool validate_gbnf(std::string_view gbnfView, std::string_view jsonContent){
+    std::filesystem::path tmpDir=std::filesystem::temp_directory_path();
+    std::string grammarPath = (tmpDir / "schema_test.gbnf").string();
+    std::string jsonPath = (tmpDir / "schema_test.json").string();
+    std::ofstream g_file(grammarPath);
+     g_file << gbnfView;
+     g_file.close();
+    std::ofstream j_file(jsonPath);
+     j_file << jsonContent;
+     j_file.close();
+    std::array<const char*, 4> args = {
+        "test-gbnf-validator", 
+        grammarPath.data(), 
+        jsonPath.data(), 
+        nullptr
+    };
+
+    pid_t pid;
+    // Spawns the executable using PATH resolution (the 'p' variant)
+    int spawn_result = posix_spawnp(&pid, args[0], nullptr, nullptr, 
+                                    const_cast<char* const*>(args.data()), environ);
+    
+    if (spawn_result != 0) {
+        // Target binary was not found or failed to execute completely
+        //FAIL("Failed to spawn grammar validator process");
+        return false;
+    }
+
+    // Block synchronously until the specific validator process closes
+    int status;
+    waitpid(pid, &status, 0);
+    std::cout<<"status "<<status<<" "<<WIFEXITED(status)<<" "<<WEXITSTATUS(status)<<std::endl;
+    CHECK_EQ(WEXITSTATUS(status), 0);
+    // Returns true if test-gbnf-validator exits cleanly with return code 0
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
 TEST_SUITE("compile-time"){
 
 TEST_CASE("test generating grammar components") {
@@ -64,39 +119,8 @@ TEST_CASE("test simple primivitives"){
     CHECK_NE(gbnfView.find("id"), std::string_view::npos);
     CHECK_NE(gbnfView.find("name"), std::string_view::npos);
 
-    std::filesystem::path tmpDir=std::filesystem::temp_directory_path();
-    std::string grammarPath = (tmpDir / "schema_test.gbnf").string();
-    std::string jsonPath = (tmpDir / "schema_test.json").string();
-    std::ofstream g_file(grammarPath);
-     g_file << gbnfView;
-     g_file.close();
-     std::string jsonContent=R"({"id": 100, "name": "Alice"})";
-    std::ofstream j_file(jsonPath);
-     j_file << jsonContent;
-     j_file.close();
-    std::array<const char*, 4> args = {
-        "test-gbnf-validator", 
-        grammarPath.data(), 
-        jsonPath.data(), 
-        nullptr
-    };
-
-    pid_t pid;
-    // Spawns the executable using PATH resolution (the 'p' variant)
-    int spawn_result = posix_spawnp(&pid, args[0], nullptr, nullptr, 
-                                    const_cast<char* const*>(args.data()), environ);
-    
-    if (spawn_result != 0) {
-        // Target binary was not found or failed to execute completely
-        FAIL("Failed to spawn grammar validator process");
-    }
-
-    // Block synchronously until the specific validator process closes
-    int status;
-    waitpid(pid, &status, 0);
-
-    // Returns true if test-gbnf-validator exits cleanly with return code 0
-    WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    target_test_environment();
+    CHECK(validate_gbnf(gbnfView, R"({"id": 100, "name": "Alice"})"));
   }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
@@ -127,9 +151,18 @@ TEST_CASE("test homogeneous vector"){
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
     CHECK_EQ(gbnfView.size(), 178);
-    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
-    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
-  }
+    CHECK_NE(gbnfView.find("tags"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("type"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("items"), std::string_view::npos);
+    target_test_environment();
+    std::string_view gbnfView2=R"(root   ::= "{" ws "\"tags\"" ws ":" ws string-array "}" ws
+string-array ::= "[" ws ( string ( ws "," ws string )* )? ws "]" ws
+
+string ::= "\"" [^"\\]* "\"" ws
+ws  ::= [ \t\n\r]*
+)";
+    CHECK(validate_gbnf(gbnfView, R"({"tags": ["Alice", "Matilda"]})"));
+   }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
   }
@@ -163,8 +196,10 @@ TEST_CASE("test fixed array / tuple"){
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
     CHECK_EQ(gbnfView.size(), 178);
-    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
-    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("oint_2d"), std::string_view::npos);
+    // CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+    target_test_environment();
+    CHECK(validate_gbnf(gbnfView, R"({"point_2d": [{0.0, 0.0}, {1.0, 1.0}]})"));
   }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
@@ -193,9 +228,11 @@ TEST_CASE("test optional fields"){
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
     CHECK_EQ(gbnfView.size(), 178);
-    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
     CHECK_NE(gbnfView.find("name"), std::string_view::npos);
-  }
+    CHECK_NE(gbnfView.find("age"), std::string_view::npos);
+    target_test_environment();
+    CHECK(validate_gbnf(gbnfView, R"({"name": "Alice", "age": 100})"));
+    }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
   }
@@ -238,7 +275,9 @@ TEST_CASE("test nested structural dependency"){
     std::cout << gbnfView<<std::endl;
     CHECK_EQ(gbnfView.size(), 178);
     CHECK_NE(gbnfView.find("id"), std::string_view::npos);
-    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("active"), std::string_view::npos);
+    target_test_environment();
+    CHECK(validate_gbnf(gbnfView, R"({"user": "Alice", "tags": ["Alice", "Matilda"]})"));
   }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
@@ -291,8 +330,10 @@ TEST_CASE("test polymorphism"){
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
     CHECK_EQ(gbnfView.size(), 178);
-    CHECK_NE(gbnfView.find("id"), std::string_view::npos);
-    CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("status"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("code"), std::string_view::npos);
+    target_test_environment();
+    CHECK(validate_gbnf(gbnfView, R"({"user": "Alice", "tags": ["Alice", "Matilda"]})"));
   }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
@@ -317,6 +358,8 @@ TEST_CASE("test jgf 2.0 binding"){
     CHECK_NE(gbnfView.find("nodes"), std::string_view::npos);
     CHECK_NE(gbnfView.find("edges"), std::string_view::npos);
     CHECK_NE(gbnfView.find("root"), std::string_view::npos);
+    target_test_environment();
+    CHECK(validate_gbnf(gbnfView, R"({"user": "Alice", "tags": ["Alice", "Matilda"]})"));
 
 
 }

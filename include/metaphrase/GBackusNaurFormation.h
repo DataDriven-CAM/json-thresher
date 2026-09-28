@@ -104,7 +104,7 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
         JSON_ARRAY,
         JSON_STRING,
         JSON_NUMBER,
-        VALUE,
+        JSON_INTEGER,
         JSON_BOOLEAN,
         PAIR_VALUE,
         JSON_NULL
@@ -520,47 +520,9 @@ enum CHOICE_KIND{
                             schemaContext=DATAKEY_MODE;
                             deferred_ref_path=jsonBuffer.substr(startOffset, cursor - startOffset);
                         }
-                        if(current_key==u8"type"){
-                            gbnfAcc.append("\n# Primitive string ");
-                            gbnfAcc.append(current_key);
-                            gbnfAcc.append(": ");
-                            gbnfAcc.append(jsonBuffer.substr(startOffset, cursor - startOffset));
-                            gbnfAcc.append(" ");
-                            gbnfAcc.append(std::to_string(idx1));
-                            gbnfAcc.append(" ");
-                            gbnfAcc.append(std::to_string(parent_id));
-                            // gbnfAcc.append("\n");
-                        }
-                    //     if(vertices.size()<10){
-                    // gbnfAcc.append("# key pair ");
-                    // gbnfAcc.append(current_key);
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(jsonBuffer.substr(startOffset, cursor - startOffset));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::to_string(idx1));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::to_string(parent_id));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::to_string(syntax_id));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::to_string(schemaContext));
-                    //             }
                          vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
                         // edges.push(std::tuple<size_t, size_t, int>{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, 1});
                         if(vertices.size()>1 && (schemaContext==SCHEMA_MODE)){
-                            if(vertices.size()<10){
-                        gbnfAcc.append(" # Edge ");
-                        gbnfAcc.append(std::get<1>(vertices.back()).key);
-                        gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(parent_id));
-                        gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(std::get<1>(vertices.back()).id));
-                        gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(edge_kind));
-                        gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
-                        gbnfAcc.append("\n");
-                            }
                             raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                             child_counts[parent_id]++;
                         }
@@ -676,6 +638,7 @@ enum CHOICE_KIND{
                 "ws ::= [ \\t\\n\\r]*\n"
                 "string ::= \"\\\"\" ([^\"])* \"\\\"\"\n"
                 "number ::= [0-9]+ (\".\" [0-9]+)?\n"
+                "integer ::= [0-9]+\n"
                 "boolean ::= \"true\" | \"false\"\n"
                 "null ::= \"null\"\n\n\0"
               );
@@ -725,9 +688,9 @@ enum CHOICE_KIND{
                 if (state.current_edge_idx == 0) {
                     vertex_rules[u].append(u_obj.key);
                     if(u_obj.key.empty()){
-                        vertex_rules[u].append("_branch_");
+                        vertex_rules[u].append("-branch-");
                         emit_size_t_as_string(vertex_rules[u], u);
-                        vertex_rules[u].append("_rule");
+                        vertex_rules[u].append("-rule");
                     }
                     vertex_rules[u].append(" ::= ");
                     if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0) vertex_rules[u].append("\"{\" ws ");
@@ -748,13 +711,48 @@ enum CHOICE_KIND{
                         size_t w = std::get<1>(edges[inner_edge]);
                         const auto& w_obj = std::get<1>(vertices[w]);
                         if(w_obj.key==u8"type"){
+                          if (state.current_edge_idx > 1 && child_counts[v]<=1) vertex_rules[u].append(" \",\" ws ");
                           vertex_rules[u].append("\"\\\"");
                           vertex_rules[u].append(v_obj.key);
                           vertex_rules[u].append("\\\"\" ws \":\" ws ");
-                          vertex_rules[u].append(w_obj.value);
-                          visited[v]=true;
-                          visited[w]=true;
+                          if(child_counts[v]>=2){
+                            vertex_rules[u].append("-branch-");
+                            emit_size_t_as_string(vertex_rules[u], v);
+                            vertex_rules[u].append("-rule \"}\"\n");
+                            vertex_rules[v].append("-branch-");
+                            emit_size_t_as_string(vertex_rules[v], v);
+                            vertex_rules[v].append("-rule ::= ");
+                            size_t x=std::get<1>(edges[edge_start_idx[v] + 1]);
+                            const auto& x_obj = std::get<1>(vertices[x]);
+                            if(w_obj.value==u8"array" && x_obj.key==u8"type"){
+                                vertex_rules[v].append("\"[\" ws ( string ( ws \",\" ws string )* )? ws \"]\"\n");
+                              //vertex_rules[u].append(x_obj.value);
+                              visited[x]=true;
+                            }
+                            visited[w]=true;
+                            visited[v]=true;
+                            traversal_stack.pop();
+                          }
+                          else if(w_obj.value==u8"array"){
+                            vertex_rules[u].append("\n# array syntax sugar\n");
+                            
+                          }
+                          else{
+                            vertex_rules[u].append(w_obj.value);
+                            visited[w]=true;
+                            visited[v]=true;
+                          }
                         }
+                    }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED){
+                        // if(state.current_edge_idx > 0) vertex_rules[u].append(" \",\" ws ");
+                        // vertex_rules[u].append("\"\\\"");
+                        // vertex_rules[u].append(v_obj.key);
+                        // vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                        // vertex_rules[u].append(v_obj.value);
+                        vertex_rules[u].append("\n# required impl here\n");
+                        visited[v]=true;
+
                     }
                     // else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_STRING && v_obj.key==u8"type"){
                     //       vertex_rules[u].append("\"\\\"");
@@ -808,9 +806,9 @@ enum CHOICE_KIND{
                         if (state.current_edge_idx > 0) vertex_rules[u].append(" \",\" ws ");
                         // Emit normal sequential keys and reference links...
                         if(v_obj.key.empty()){
-                            vertex_rules[u].append("_branch_");
+                            vertex_rules[u].append("-branch-");
                             emit_size_t_as_string(vertex_rules[u], v);
-                            vertex_rules[u].append("_rule");
+                            vertex_rules[u].append("-rule");
                         }
                         else{
                         //   vertex_rules[u].append("\"\\\"");
@@ -841,7 +839,8 @@ enum CHOICE_KIND{
         constexpr bool is_schema_keyword(std::u8string_view key) {
             return key == u8"properties" || key == u8"oneOf" || key == u8"anyOf" || key == u8"allOf" || key == u8"enum" || 
                 key == u8"items"      || key == u8"required" || key == u8"additionalProperties" ||
-                key == u8"$schema"    || key == u8"$id"       || key == u8"title" || key == u8"type";
+                key == u8"$schema"    || key == u8"$id"       || key == u8"title" || key == u8"type" ||
+                key == u8"prefixItems";
         }    
 
         template<size_t VCapacity>
@@ -878,6 +877,7 @@ enum CHOICE_KIND{
             switch (type) {
                 case JSON_STRING: return u8"string";
                 case JSON_NUMBER: return u8"number";
+                case JSON_INTEGER: return u8"integer";
                 case JSON_BOOLEAN: return u8"boolean";
                 case JSON_NULL: return u8"null";
                 default: return u8"";
