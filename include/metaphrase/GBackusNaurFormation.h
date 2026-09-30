@@ -22,32 +22,32 @@
 
 namespace sylvanmats::metaphrase{
 
-// Structural fixed_string template matching our performance pipeline
-template<size_t N>
-struct fixed_string {
-    char data[N]{};
-    std::size_t length = 0;
-    consteval fixed_string(const char (&str)[N]) { std::copy_n(str, N, data); }
-    constexpr fixed_string(const char* ptr, size_t len) {
-        length = (len < N) ? len : (N - 1);
-        for (std::size_t i = 0; i < length; ++i) {
-            data[i] = ptr[i];
+    // Structural fixed_string template matching our performance pipeline
+    template<size_t N>
+    struct fixed_string {
+        char data[N]{};
+        std::size_t length = 0;
+        consteval fixed_string(const char (&str)[N]) { std::copy_n(str, N, data); }
+        constexpr fixed_string(const char* ptr, size_t len) {
+            length = (len < N) ? len : (N - 1);
+            for (std::size_t i = 0; i < length; ++i) {
+                data[i] = ptr[i];
+            }
+            data[len] = '\0';
         }
-        data[len] = '\0';
-    }
-    constexpr std::string_view view() const { return std::string_view(data, length); }
+        constexpr std::string_view view() const { return std::string_view(data, length); }
 
-    template<size_t M>
-    constexpr auto operator+(const fixed_string<M>& other) const {
-        char merged[N + M - 1]{};
-        std::copy_n(data, N - 1, merged);
-        std::copy_n(other.data, M - 1, merged + N - 1);
-        return fixed_string<N + M - 1>(merged, N + M - 2);
-    }
-};
+        template<size_t M>
+        constexpr auto operator+(const fixed_string<M>& other) const {
+            char merged[N + M - 1]{};
+            std::copy_n(data, N - 1, merged);
+            std::copy_n(other.data, M - 1, merged + N - 1);
+            return fixed_string<N + M - 1>(merged, N + M - 2);
+        }
+    };
 
-template<size_t N>
-fixed_string(const char (&)[N]) -> fixed_string<N>;
+    template<size_t N>
+    fixed_string(const char (&)[N]) -> fixed_string<N>;
 
     // Allocation-free rule generator using structural concatenation
     template<fixed_string RuleName, fixed_string Body>
@@ -73,7 +73,7 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
         template<typename... Args>
         constexpr void emplace(Args&&... args) {
             if (current_size >= Capacity) {
-                throw std::out_of_range("fixed_stack overflow");
+                throw std::out_of_range(std::format("fixed_stack overflow : Cannot emplace element into a full buffer of size {}", Capacity));
             }
             // Construct the element perfectly in place
             (*this)[current_size++] = T(std::forward<Args>(args)...);
@@ -95,54 +95,21 @@ fixed_string(const char (&)[N]) -> fixed_string<N>;
 
         constexpr size_t size() const { return current_size; }
         constexpr bool empty() const { return current_size == 0; }
+        constexpr void clear() { current_size = 0; }
+
+        constexpr bool anyOf(const T& val) const {
+            for (size_t i = 0; i < current_size; ++i) {
+                if ((*this)[i] == val) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
     };
-
-// Layout descriptors
-    enum OBJECT_TYPE{
-        JSON_ROOT,
-        JSON_OBJECT,
-        JSON_ARRAY,
-        JSON_STRING,
-        JSON_NUMBER,
-        JSON_INTEGER,
-        JSON_BOOLEAN,
-        PAIR_VALUE,
-        JSON_NULL
-    };
-
-    struct jobject{
-        OBJECT_TYPE obj_type;
-        size_t id=0;
-        size_t parent_id=0;
-        size_t syntax_id=0;
-        std::u8string_view key{};
-        std::u8string_view value{};
-        size_t depth=0;
-        bool is_choice_child = false; // Flag to indicate if this node is syntax for alternation children
-        std::u8string_view deferred_ref_path; // e.g., "#/definitions/graph"
-        size_t resolved_target_idx = 0;     // Left at 0 for now
-    };
-
-template<typename T, size_t Capacity>
-struct fixed_pool {
-    T data[Capacity]{};
-    size_t count = 0;
-};
-
-// Generates perfectly matching rule indentation entirely inside compile-time boundaries
-constexpr auto make_indent(size_t depth) {
-    // 1. Create a baseline master string containing our maximum expected indentation size
-    constexpr auto master_spaces = fixed_string("                                                            "); // 60 spaces
-    
-    // 2. Compute exact required string length bounds
-    size_t count = std::min(depth * 2, size_t(60));
-    
-    // 3. Return an explicitly bound string slice using the exact constructor signature
-    return fixed_string<61>(master_spaces.data, count);
-}
 
 // Explicit master slice-appender that accepts dynamic lengths safely
-template<size_t MaxCapacity = 4096>
+template<size_t MaxCapacity = 8192>
 struct fixed_accumulator {
     char data_buffer[MaxCapacity]{};
     size_t current_length = 0;
@@ -170,7 +137,7 @@ struct fixed_accumulator {
             current_length += u8sv.length();
             data_buffer[current_length] = '\0';
         } else {
-            throw std::out_of_range("fixed_accumulator overflow on u8 append");
+            throw std::out_of_range(std::format("fixed_accumulator overflow on u8 append {} {}", u8sv.length(), MaxCapacity));
         }
     }
 
@@ -217,7 +184,7 @@ struct fixed_accumulator {
             throw std::out_of_range("fixed_accumulator overflow on u8 append_quoted_escaped");
         }
     }
-
+    
     constexpr void push_back(char c) {
         if (current_length + 2 <= MaxCapacity) {
             data_buffer[current_length++] = c;
@@ -227,37 +194,66 @@ struct fixed_accumulator {
         }
     }
 
+    
     constexpr const char* data() const { return data_buffer; }
     constexpr size_t size() const { return current_length; }
     constexpr std::string_view view() const { return std::string_view(data_buffer, current_length); }
 };
 
-enum SCHEMA_CONTEXT {
-    SCHEMA_MODE,     // Keywords active (type, properties)
-    DATAKEY_MODE,    // Keywords suspended, treat keys as literal string fragments
-    REGEXKEY_MODE,   // Keywords suspended, treat keys as regex token rules
-    SYMBOLDEF_MODE   // Keys are internal references (under $defs)
-};
+// Layout descriptors
+    enum OBJECT_TYPE{
+        JSON_ROOT,
+        JSON_OBJECT,
+        JSON_ARRAY,
+        JSON_STRING,
+        JSON_NUMBER,
+        JSON_INTEGER,
+        JSON_BOOLEAN,
+        PAIR_VALUE,
+        JSON_NULL
+    };
 
-enum EDGE_KIND{
-    EDGE_KIND_AST=1,
-    EDGE_KIND_AST_CHOICE=2,
-    EDGE_KIND_PROPERTIES=3,
-    EDGE_KIND_ADDITIONAL_PROPERTIES=4,
-    EDGE_KIND_DEFINITIONS=5,
-    EDGE_KIND_REQUIRED=6,
-};
+    struct jobject{
+        OBJECT_TYPE obj_type;
+        size_t id=0;
+        size_t parent_id=0;
+        size_t syntax_id=0;
+        std::u8string_view key{};
+        std::u8string_view value{};
+        size_t depth=0;
+        bool is_choice_child = false; // Flag to indicate if this node is syntax for alternation children
+        std::u8string_view deferred_ref_path; // e.g., "#/definitions/graph"
+        size_t resolved_target_idx = 0;     // Left at 0 for now
+    };
 
-enum CHOICE_KIND{
-    CHOICE_KIND_NONE=0,
-    CHOICE_KIND_ONEOF=1,
-    CHOICE_KIND_ANYOF=2,
-    CHOICE_KIND_ALLOF=3,
-    CHOICE_KIND_ENUM=4,
-    CHOICE_KIND_TYPE=5,
-    CHOICE_KIND_ITEMS=6,
-    CHOICE_KIND_DEFINITIONS=7,
-};
+    enum SCHEMA_CONTEXT {
+        SCHEMA_MODE,     // Keywords active (type, properties)
+        DATAKEY_MODE,    // Keywords suspended, treat keys as literal string fragments
+        REGEXKEY_MODE,   // Keywords suspended, treat keys as regex token rules
+        SYMBOLDEF_MODE   // Keys are internal references (under $defs)
+    };
+
+    enum EDGE_KIND{
+        EDGE_KIND_AST=1,
+        EDGE_KIND_AST_CHOICE=2,
+        EDGE_KIND_PROPERTIES=3,
+        EDGE_KIND_ADDITIONAL_PROPERTIES=4,
+        EDGE_KIND_DEFINITIONS=5,
+        EDGE_KIND_REQUIRED=6,
+        EDGE_KIND_ITEMS=7,
+        EDGE_KIND_PREFIX_ITEMS=8,
+    };
+
+    enum CHOICE_KIND{
+        CHOICE_KIND_NONE=0,
+        CHOICE_KIND_ONEOF=1,
+        CHOICE_KIND_ANYOF=2,
+        CHOICE_KIND_ALLOF=3,
+        CHOICE_KIND_ENUM=4,
+        CHOICE_KIND_TYPE=5,
+        CHOICE_KIND_ITEMS=6,
+        CHOICE_KIND_DEFINITIONS=7,
+    };
 
     struct RawEdge {
          size_t source;
@@ -281,12 +277,12 @@ enum CHOICE_KIND{
         GBackusNaurFormation& operator=(GBackusNaurFormation&& orig) = delete;
         ~GBackusNaurFormation() = default;
         constexpr fixed_string<16384> operator ()(std::u8string_view jsonBuffer){
-            fixed_stack<std::tuple<size_t, jobject>, 4096> vertices;
-            fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, 4095> edges;
+            fixed_stack<std::tuple<size_t, jobject>, 8192> vertices;
+            fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, 8191> edges;
             fixed_stack<size_t, 64> parentStack;
-            fixed_stack<RawEdge, 4095> raw_edges;
+            fixed_stack<RawEdge, 8191> raw_edges;
 
-            std::array<size_t, 4096> child_counts{};
+            std::array<size_t, 8192> child_counts{};
             child_counts.fill(0);
 
             size_t cursor = 0;
@@ -309,7 +305,7 @@ enum CHOICE_KIND{
                     EDGE_KIND edge_kind=getEdgeKind(current_key);
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
-                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, EDGE_KIND_AST});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
                     hitColon=false;
@@ -331,7 +327,7 @@ enum CHOICE_KIND{
                     }
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                         vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size(), .is_choice_child=choice_flag});
-                        raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id});
+                        raw_edges.push(RawEdge{parent_id, idx1});
                         child_counts[parent_id]++;
                     }
                     hitColon=false;
@@ -353,7 +349,7 @@ enum CHOICE_KIND{
                     }
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                         vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size(), .is_choice_child=choice_flag});
-                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, EDGE_KIND_AST});
+                        raw_edges.push(RawEdge{parent_id, idx1, EDGE_KIND_AST});
                         child_counts[parent_id]++;
                     }
                     hitColon=false;
@@ -372,7 +368,7 @@ enum CHOICE_KIND{
                     // Check the key immediately to set the flag inline
                     bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    size_t syntax_id=(choice_flag || current_key==u8"definitions") ? parent_id : 0;
+                    size_t syntax_id=(choice_flag || current_key==u8"definitions" || current_key==u8"$defs") ? parent_id : 0;
                     SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                     EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
                     if(hasParentalSyntax(vertices, parentStack)){
@@ -452,7 +448,7 @@ enum CHOICE_KIND{
                     keyStart = 0;
                     keyEnd = 0;
                     if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || !is_schema_keyword(current_key))){
-                        raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind, schemaContext});
+                        raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
                         gbnfAcc.append(" # Edge ");
                         gbnfAcc.append(std::get<1>(vertices.back()).key);
@@ -493,8 +489,22 @@ enum CHOICE_KIND{
                         if(std::get<1>(vertices[parentStack.back()]).is_choice_child){
                             edge_kind=EDGE_KIND_AST_CHOICE;
                         }
-                        raw_edges.push(RawEdge{parent_id, std::get<1>(vertices.back()).id, edge_kind});
+                        else if(std::get<1>(vertices[parentStack.back()]).key==u8"required"){
+                            edge_kind=EDGE_KIND_REQUIRED;
+                        }
+                        raw_edges.push(RawEdge{parent_id, idx1, edge_kind});
                         child_counts[parent_id]++;
+                        gbnfAcc.append(" # text array Edge ");
+                        gbnfAcc.append(std::get<1>(vertices.back()).key);
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(idx1));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(parent_id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(edge_kind));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        gbnfAcc.append("\n");
                     }
                     else if(!hitColon){
                         keyStart=startOffset;
@@ -525,6 +535,17 @@ enum CHOICE_KIND{
                         if(vertices.size()>1 && (schemaContext==SCHEMA_MODE)){
                             raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                             child_counts[parent_id]++;
+                        gbnfAcc.append(" # text key Edge ");
+                        gbnfAcc.append(std::get<1>(vertices.back()).key);
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(idx1));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(parent_id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(edge_kind));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        gbnfAcc.append("\n");
                         }
                         else if(vertices.size()<10)gbnfAcc.append(" # no edge \n");
                         hitColon=false;
@@ -544,13 +565,13 @@ enum CHOICE_KIND{
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
                         EDGE_KIND edge_kind=EDGE_KIND_AST;
-                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id, edge_kind});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, edge_kind});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
                     else{
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
-                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, std::get<1>(vertices.back()).id});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, EDGE_KIND_AST});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
                     hitColon=false;
@@ -581,7 +602,7 @@ enum CHOICE_KIND{
                 }
             }
             
-            std::array<size_t, 4096> edge_offsets{};
+            std::array<size_t, 8192> edge_offsets{};
             size_t running_sum = 0;
 
             for (size_t i = 0; i < vertices.size(); ++i) {
@@ -613,7 +634,7 @@ enum CHOICE_KIND{
                 edges[target_slot] = std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>{src, dest, raw_edges[i].edge_kind, raw_edges[i].context};
             }
             // 1. Storage bounds matching your structural limits
-            std::array<size_t, 4096> edge_start_idx{};
+            std::array<size_t, 8192> edge_start_idx{};
             size_t sum = 0;
             for (size_t i = 0; i < vertices.size(); ++i) {
                 edge_start_idx[i] = sum;
@@ -651,7 +672,7 @@ enum CHOICE_KIND{
             const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
             const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
-            std::array<size_t, 4096>& child_counts,
+            std::array<size_t, VCapacity>& child_counts,
             std::array<fixed_accumulator<512>, 8192>& vertex_rules
         ) {
             if (vertices.size() <= 1) return;
@@ -666,7 +687,7 @@ enum CHOICE_KIND{
             traversal_stack.push(DFSState{0, 0});
             visited[0] = true;
 
-            std::array<size_t, 4096> printed_fields{};
+            std::array<size_t, 8192> printed_fields{};
             printed_fields.fill(0);
             
             while (!traversal_stack.empty()) {
@@ -684,6 +705,7 @@ enum CHOICE_KIND{
                     traversal_stack.pop();
                     continue;
                 }
+
                 // 1. Declare the rule name on entry
                 if (state.current_edge_idx == 0) {
                     vertex_rules[u].append(u_obj.key);
@@ -703,13 +725,29 @@ enum CHOICE_KIND{
                     const auto& v_obj = std::get<1>(vertices[v]);
 
 
-                    if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS || (std::get<1>(vertices[v_obj.syntax_id]).key==u8"definitions")){
+                    if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS || (std::get<1>(vertices[v_obj.syntax_id]).key==u8"definitions" || std::get<1>(vertices[v_obj.syntax_id]).key==u8"$defs")){
                         // vertex_rules[u].append("\n# definitions syntax sugar\n");
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES){
+                        fixed_stack<std::u8string_view, 128> required_stack;
+                        findRequiredArray(u, v, child_counts, vertices, edges, edge_start_idx, required_stack);
                         size_t inner_edge = edge_start_idx[v] + 0;
                         size_t w = std::get<1>(edges[inner_edge]);
                         const auto& w_obj = std::get<1>(vertices[w]);
+                        if(required_stack.size()>0){
+                        //     for(auto& required_key : required_stack){
+                        //         vertex_rules[u].append("# required ");
+                        //         vertex_rules[u].append(required_key);
+                        //         vertex_rules[u].append("\n");
+                        //     }
+                        }
+                        else if (v_obj.key==u8"tags" && required_stack.size()>0){
+                            vertex_rules[u].append("\n# ");
+                            vertex_rules[u].append(u_obj.key);
+                            vertex_rules[u].append(" tags array ");
+                            vertex_rules[u].append(std::to_string(required_stack.size()));
+                            vertex_rules[u].append("\n");
+                        }
                         if(w_obj.key==u8"type"){
                           if (state.current_edge_idx > 1 && child_counts[v]<=1) vertex_rules[u].append(" \",\" ws ");
                           vertex_rules[u].append("\"\\\"");
@@ -743,6 +781,7 @@ enum CHOICE_KIND{
                             visited[v]=true;
                           }
                         }
+                        required_stack.clear();
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED){
                         // if(state.current_edge_idx > 0) vertex_rules[u].append(" \",\" ws ");
@@ -750,7 +789,7 @@ enum CHOICE_KIND{
                         // vertex_rules[u].append(v_obj.key);
                         // vertex_rules[u].append("\\\"\" ws \":\" ws ");
                         // vertex_rules[u].append(v_obj.value);
-                        vertex_rules[u].append("\n# required impl here\n");
+                        //vertex_rules[u].append("\n# required impl here\n");
                         visited[v]=true;
 
                     }
@@ -803,6 +842,15 @@ enum CHOICE_KIND{
                         }
                         vertex_rules[u].append("_rule");
                     } else {
+                        // fixed_stack<std::u8string_view, 128> required_stack;
+                        // findRequiredArray(u, v, child_counts, vertices, edges, edge_start_idx, required_stack);
+                        // if(required_stack.size()>0){
+                        //     for(auto& required_key : required_stack){
+                        //         vertex_rules[u].append("General # required ");
+                        //         vertex_rules[u].append(required_key);
+                        //         vertex_rules[u].append("\n");
+                        //     }
+                        // }
                         if (state.current_edge_idx > 0) vertex_rules[u].append(" \",\" ws ");
                         // Emit normal sequential keys and reference links...
                         if(v_obj.key.empty()){
@@ -839,7 +887,7 @@ enum CHOICE_KIND{
         constexpr bool is_schema_keyword(std::u8string_view key) {
             return key == u8"properties" || key == u8"oneOf" || key == u8"anyOf" || key == u8"allOf" || key == u8"enum" || 
                 key == u8"items"      || key == u8"required" || key == u8"additionalProperties" ||
-                key == u8"$schema"    || key == u8"$id"       || key == u8"title" || key == u8"type" ||
+                key == u8"$schema"    || key == u8"$id"      || key == u8"$defs"   || key == u8"title" || key == u8"type" ||
                 key == u8"prefixItems";
         }    
 
@@ -847,6 +895,8 @@ enum CHOICE_KIND{
         constexpr bool hasParentalSyntax(const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, fixed_stack<size_t, 64>& parentStack){
             if(parentStack.size()>=2 && (getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE)){
                 if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_PROPERTIES)
+                    return false;
+                if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_REQUIRED)
                     return false;
                     return true;
             }
@@ -856,8 +906,10 @@ enum CHOICE_KIND{
         constexpr EDGE_KIND getEdgeKind(std::u8string_view key) {
             if (key == u8"properties") return EDGE_KIND_PROPERTIES;
             if (key == u8"additionalProperties") return EDGE_KIND_ADDITIONAL_PROPERTIES;
-            if (key == u8"definitions") return EDGE_KIND_DEFINITIONS;
+            if (key == u8"definitions" || key == u8"$defs") return EDGE_KIND_DEFINITIONS;
             if (key == u8"required") return EDGE_KIND_REQUIRED;
+            if (key == u8"items") return EDGE_KIND_ITEMS;
+            if (key == u8"prefixItems") return EDGE_KIND_PREFIX_ITEMS;
             if (getChoiceSyntax(key)!=CHOICE_KIND_NONE) return EDGE_KIND_AST_CHOICE;
             return EDGE_KIND_AST;
         }
@@ -869,7 +921,7 @@ enum CHOICE_KIND{
             if (key == u8"enum") return CHOICE_KIND_ENUM;
             if (key == u8"type") return CHOICE_KIND_TYPE;
             if (key == u8"items") return CHOICE_KIND_ITEMS;
-            if (key == u8"definitions") return CHOICE_KIND_DEFINITIONS; 
+            if (key == u8"definitions" || key == u8"$defs") return CHOICE_KIND_DEFINITIONS;
             return CHOICE_KIND_NONE;
         }
 
@@ -883,6 +935,32 @@ enum CHOICE_KIND{
                 default: return u8"";
             }
         }
+
+        template<size_t VCapacity, size_t ECapacity>
+        constexpr void findRequiredArray(const size_t u, const size_t v, std::array<size_t, VCapacity>& child_counts,
+            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const std::array<size_t, VCapacity>& edge_start_idx, fixed_stack<std::u8string_view, 128>& required_array)
+        {
+            size_t current_edge_idx = 0;
+            while(current_edge_idx<child_counts[u]){
+                size_t inner_edge = edge_start_idx[u] + current_edge_idx;
+                size_t w = std::get<1>(edges[inner_edge]);
+                const auto& w_obj = std::get<1>(vertices[w]);
+                if(std::get<2>(edges[inner_edge]) == EDGE_KIND_REQUIRED){
+                    required_array.emplace(w_obj.value);
+                    // size_t current_edge_idx2 = 0;
+                    // while(current_edge_idx2<child_counts[w]){
+                    //     size_t inner_edge2 = edge_start_idx[w] + current_edge_idx2;
+                    //     size_t x = std::get<1>(edges[inner_edge2]);
+                    //     const auto& x_obj = std::get<1>(vertices[x]);
+                    //     required_array.emplace(x_obj.value);
+                    //     current_edge_idx2++;
+                    // }
+                }
+                current_edge_idx++;
+            }
+        };
 
         template<size_t VCapacity>
         constexpr size_t resolve_ref_pointer(

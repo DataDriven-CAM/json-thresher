@@ -99,7 +99,7 @@ TEST_CASE("test generating grammar components") {
 
 }
 
-TEST_CASE("test simple primivitives"){
+TEST_CASE("test simple primitives"){
   try{
     // Ensure static storage duration so the view points to persistent data
     static constexpr std::u8string_view sample_schema = u8R"({

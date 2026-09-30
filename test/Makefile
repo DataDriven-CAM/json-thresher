@@ -7,7 +7,7 @@ OPT_FLAGS ?= -O3
 #-include ../build/src/io/json/Binder.d
 #-include ../build/src/io/json/Path.d
 
-all: LDFLAGS= -fuse-ld=gold -L../ -ljsonthresher -pthread
+all: LDFLAGS= -Wl,-rpath,'$$ORIGIN/$(MODULE_DIRECTORY)/llama/dist/lib' -fuse-ld=gold -L../ -ljsonthresher -pthread
 all: build/src/compile-time-test.o build/src/test.o
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) build/src/*.o -o test  
