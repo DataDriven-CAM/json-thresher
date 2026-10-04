@@ -485,6 +485,159 @@ TEST_CASE("test component json" * doctest::skip()) {
 
 }
 
+TEST_CASE("test array of doubles") {
+    auto startTime = std::chrono::high_resolution_clock::now();
+    std::string jsonContent=R"({
+  "data": [
+    {
+      "builder_meta": {
+        "emmet_version": "0.84.3rc4",
+        "pymatgen_version": "2024.11.13",
+        "run_id": "ccba9c49-e919-43c2-8d4f-35b2d60eb94b",
+        "database_version": "2025.09.25",
+        "build_date": "2024-11-21T20:25:14.342000",
+        "license": "BY-C"
+      },
+      "nsites": 28,
+      "elements": [
+        "Ca",
+        "H",
+        "O",
+        "P"
+      ],
+      "nelements": 4,
+      "composition": {
+        "Ca": 4,
+        "P": 4,
+        "H": 4,
+        "O": 16
+      },
+      "composition_reduced": {
+        "Ca": 1,
+        "P": 1,
+        "H": 1,
+        "O": 4
+      },
+      "formula_pretty": "CaPHO4",
+      "formula_anonymous": "ABCD4",
+      "chemsys": "Ca-H-O-P",
+      "volume": 306.6436855866642,
+      "density": 2.9471138769409553,
+      "density_atomic": 10.951560199523723,
+      "symmetry": {
+        "crystal_system": "Triclinic",
+        "symbol": "P1",
+        "number": 1,
+        "point_group": "1",
+        "symprec": 0.1,
+        "angle_tolerance": 5,
+        "version": "2.5.0"
+      },
+      "material_id": "mp-24390",
+      "structure": {
+        "@module": "pymatgen.core.structure",
+        "@class": "Structure",
+        "charge": 0,
+        "lattice": {
+          "matrix": [
+            [
+              6.57658465,
+              -0.00686249,
+              0.73504549
+            ],
+            [
+              0.01075267,
+              6.68536666,
+              1.66638879
+            ],
+            [
+              0.00598045,
+              0.019982510000000002,
+              6.98006004
+            ]
+          ],
+          "pbc": [
+            true,
+            true,
+            true
+          ],
+          "a": 6.61753765571107,
+          "b": 6.889927038655006,
+          "c": 6.980091204883565,
+          "alpha": 75.83963235918658,
+          "beta": 83.5737971266937,
+          "gamma": 88.42936623123354,
+          "volume": 306.6436855866642
+        },
+        "properties": {},
+        "sites": [
+          {
+            "species": [
+              {
+                "element": "Ca",
+                "occu": 1
+              }
+            ],
+            "abc": [
+              0.56038656,
+              0.7003357100000001,
+              0.27229526
+            ],
+            "properties": {
+              "magmom": 0
+            },
+            "label": "Ca",
+            "xyz": [
+              3.694588575528816,
+              4.683596502033196,
+              3.479578453372715
+            ]
+          },
+          {
+            "species": [
+              {
+                "element": "Ca",
+                "occu": 1
+              }
+            ],
+            "abc": [
+              0.43852612,
+              0.28958574,
+              0.73100588
+            ],
+            "properties": {
+              "magmom": 0
+            },
+            "label": "Ca",
+            "xyz": [
+              2.89148971343003,
+              1.947584802601348,
+              5.9073640096260895
+            ]
+          }
+        ]
+      }
+    }
+  ]   
+})";
+    sylvanmats::io::json::Binder jsonBinder;
+    jsonBinder(jsonContent);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 102);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 101);
+    
+    sylvanmats::io::json::Path jp;
+    jp["data"]["*"]["structure"]["sites"]["*"]["xyz"];
+    jsonBinder(jp, [&](const sylvanmats::io::json::JsonValue& v){
+        if (auto pVal = std::get_if<std::valarray<double>>(&v)) {
+            std::cout<<"array"<<" "<<pVal->size()<<std::endl;
+        }
+    });
+    auto endTime = std::chrono::high_resolution_clock::now();
+    //std::cout << "match time: " << std::chrono::duration_cast<std::chrono::nanoseconds>(endTime-intermediateTime).count()*1.0e-9 << "s\n";
+    //std::cout << "elapsed time: " << std::chrono::duration_cast<std::chrono::nanoseconds>(endTime-startTime).count()*1.0e-9 << "s\n";
+
+}
+
 TEST_CASE("test reading crossref json") {
     sylvanmats::io::json::Binder jsonBinder;
         std::ifstream is("examples/crossref.json");

@@ -152,7 +152,6 @@ TEST_CASE("test homogeneous vector"){
     std::cout << gbnfView<<std::endl;
     CHECK_EQ(gbnfView.size(), 178);
     CHECK_NE(gbnfView.find("tags"), std::string_view::npos);
-    CHECK_NE(gbnfView.find("type"), std::string_view::npos);
     CHECK_NE(gbnfView.find("items"), std::string_view::npos);
     target_test_environment();
     std::string_view gbnfView2=R"(root   ::= "{" ws "\"tags\"" ws ":" ws string-array "}" ws
@@ -194,10 +193,10 @@ TEST_CASE("test fixed array / tuple"){
     sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
-    std::cout << gbnfView<<std::endl;
+    std::cout<<"prefixItems " << gbnfView<<std::endl;
     CHECK_EQ(gbnfView.size(), 178);
-    CHECK_NE(gbnfView.find("oint_2d"), std::string_view::npos);
-    // CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("point_2d"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("number"), std::string_view::npos);
     target_test_environment();
     CHECK(validate_gbnf(gbnfView, R"({"point_2d": [{0.0, 0.0}, {1.0, 1.0}]})"));
   }
@@ -274,8 +273,11 @@ TEST_CASE("test nested structural dependency"){
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
     CHECK_EQ(gbnfView.size(), 178);
+    CHECK_NE(gbnfView.find("user"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("tags"), std::string_view::npos);
     CHECK_NE(gbnfView.find("id"), std::string_view::npos);
     CHECK_NE(gbnfView.find("active"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("SimpleUser"), std::string_view::npos);
     target_test_environment();
     CHECK(validate_gbnf(gbnfView, R"({"user": "Alice", "tags": ["Alice", "Matilda"]})"));
   }

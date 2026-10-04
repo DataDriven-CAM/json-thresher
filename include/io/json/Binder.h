@@ -69,7 +69,7 @@ concept IsJsonKeyValuePair = requires {
         size_t id=0;
         size_t parent_id=0;
         size_t key_index=0;
-        mutable std::variant<std::monostate, std::valarray<double>, std::string_view, const char*, double, int, unsigned int, long, unsigned long, long long, bool> value_index{std::monostate{}};
+        mutable JsonValue value_index{std::monostate{}};
         size_t start=0;
         size_t end=0;
         size_t depth=0;
@@ -389,13 +389,38 @@ concept IsJsonKeyValuePair = requires {
                             }
                         }
                         else if(vertices[vid].value.obj_type==JSON_ARRAY){
-                            // std::cout<<"START_ARRAY "<<vertices[vid].value.id<<" "<<substr_view(jsonContent, vertices[vid].value.start, vertices[vid].value.end)<<" "<<graph::views::out_incidence(dagGraph, u).size()<<std::endl;
-                            for (auto&& oe : graph::adj_list::out_edges(dagGraph, vertexDescriptor.vertex)) {
-                                auto oid=graph::target_id(dagGraph, oe);
-                                std::cout<<"\t"<<oid<<" "<<vertices[oid].value.key<<" "<<substr_view(jsonContent, vertices[oid].value.start, vertices[oid].value.end)<<std::endl;
-                                JsonValue a=substr_view(jsonContent, vertices[oid].value.start, vertices[oid].value.end);
-                                if(cb(vertices[oid].value.id, vertices[oid].value.key, a))hit=true;
-                                // if(!singleMatch && hit && currentDepth>0 && jp.p[currentDepth-1].label.compare("*")!=0)dfs.cancel(graph::views::cancel_search::cancel_branch);
+                            bool numericArray=false;
+                            size_t arraySize=graph::views::out_incidence(dagGraph, vertexDescriptor.vertex).size();
+                            if(arraySize>0){
+                                auto oid=graph::target_id(dagGraph, graph::views::out_incidence(dagGraph, vertexDescriptor.vertex).front());
+                                if(vertices[oid].value.obj_type==VALUE){
+                                    if(std::get_if<double>(&vertices[oid].value.value_index))numericArray=true;
+                                }
+                            }
+                            
+                            if(numericArray)std::cout<<"START_ARRAY "<<vertices[vid].value.key<<" "<<substr_view(jsonContent, vertices[vid].value.start, vertices[vid].value.end)<<" "<<graph::views::out_incidence(dagGraph, vid).size()<<std::endl;
+                            if(numericArray){
+                                std::valarray<double> a(arraySize);
+                                size_t count=0;
+                                for (auto&& oe : graph::adj_list::out_edges(dagGraph, vertexDescriptor.vertex)) {
+                                    auto oid=graph::target_id(dagGraph, oe);
+                                    // std::cout<<"\t"<<oid<<" "<<vertices[oid].value.key<<" "<<substr_view(jsonContent, vertices[oid].value.start, vertices[oid].value.end)<<std::endl;
+                                    JsonValue val=substr_view(jsonContent, vertices[oid].value.start, vertices[oid].value.end);
+                                    if(auto pVal = std::get_if<double>(&val)){
+                                        a[count]=*pVal;
+                                        count++;
+                                    }
+                                }
+                                cb(vertices[vid].value.id, vertices[vid].value.key, a);
+                            }
+                            else{
+                                for (auto&& oe : graph::adj_list::out_edges(dagGraph, vertexDescriptor.vertex)) {
+                                    auto oid=graph::target_id(dagGraph, oe);
+                                    std::cout<<"\t"<<oid<<" "<<vertices[oid].value.key<<" "<<substr_view(jsonContent, vertices[oid].value.start, vertices[oid].value.end)<<std::endl;
+                                    JsonValue a=substr_view(jsonContent, vertices[oid].value.start, vertices[oid].value.end);
+                                    if(cb(vertices[oid].value.id, vertices[oid].value.key, a))hit=true;
+                                    // if(!singleMatch && hit && currentDepth>0 && jp.p[currentDepth-1].label.compare("*")!=0)dfs.cancel(graph::views::cancel_search::cancel_branch);
+                                }
                             }
                             // std::cout<<"START_ARRAY end "<<std::endl;
                         }
