@@ -99,6 +99,34 @@ TEST_CASE("test generating grammar components") {
 
 }
 
+TEST_CASE("test generic primitives"){
+  try{
+    // Ensure static storage duration so the view points to persistent data
+    static constexpr std::u8string_view sample_schema = u8R"({
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object"
+})";
+
+    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
+    constexpr std::string_view gbnfView=gbnf.view();
+    std::cout << gbnfView<<std::endl;
+    CHECK_EQ(gbnfView.size(), 614);
+    // CHECK_NE(gbnfView.find("id"), std::string_view::npos);
+    // CHECK_NE(gbnfView.find("name"), std::string_view::npos);
+
+    target_test_environment();
+    CHECK(validate_gbnf(gbnfView, R"({"id": 100, "name": "Alice"})"));
+  }
+  catch(std::out_of_range& e){
+    std::cout << "out of range "<<e.what()<<std::endl;
+  }
+  catch(std::exception& e){
+    std::cout << "exception "<<e.what()<<std::endl;
+  }
+}
+
+
 TEST_CASE("test simple primitives"){
   try{
     // Ensure static storage duration so the view points to persistent data

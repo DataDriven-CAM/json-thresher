@@ -373,7 +373,7 @@ struct fixed_accumulator {
                     // Check the key immediately to set the flag inline
                     bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    size_t syntax_id=(choice_flag || current_key==u8"definitions" || current_key==u8"$defs") ? parent_id : 0;
+                    size_t syntax_id=(choice_flag) ? parent_id : 0;
                     SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                     EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
                     if(hasParentalSyntax(vertices, parentStack)){
@@ -712,6 +712,8 @@ struct fixed_accumulator {
             std::array<size_t, 8192> printed_fields{};
             printed_fields.fill(0);
             
+            size_t offset_edge_idx=0;
+            size_t highest_vertex_id=0;
             while (!traversal_stack.empty()) {
                 auto& state = traversal_stack.back();
                 size_t u = state.vertex_id;
@@ -728,6 +730,19 @@ struct fixed_accumulator {
                     continue;
                 }
 
+                if(u_obj.obj_type==JSON_OBJECT && child_counts[u]==1 && std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key==u8"type"){
+
+                    vertex_rules[u].append("root ::= \"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
+                    vertex_rules[u].append("value  ::= object | array | string | number | \"true\" | \"false\" | \"null\"\n");
+                    vertex_rules[u].append("object ::= \"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
+                    vertex_rules[u].append("array  ::= \"[\" ws ( value ( ws \",\" ws value )* )? \"]\"\n");
+                    if (!visited[u]) {
+                    visited[u] = true;
+                    }
+                    traversal_stack.pop();
+                    break;
+                }
+                
                 // 1. Declare the rule name on entry
                 if (state.current_edge_idx == 0) {
                     vertex_rules[u].append(u_obj.key);
@@ -745,7 +760,7 @@ struct fixed_accumulator {
                     size_t next_edge = edge_start_idx[u] + state.current_edge_idx;
                     size_t v = std::get<1>(edges[next_edge]);
                     const auto& v_obj = std::get<1>(vertices[v]);
-
+                    if(highest_vertex_id<v)highest_vertex_id=v;
 
                     if(v_obj.resolved_target_idx>0){
                         size_t r=v_obj.resolved_target_idx;
@@ -777,6 +792,7 @@ struct fixed_accumulator {
                         size_t inner_edge = edge_start_idx[v] + 0;
                         size_t w = std::get<1>(edges[inner_edge]);
                         const auto& w_obj = std::get<1>(vertices[w]);
+                        if(highest_vertex_id<w)highest_vertex_id=w;
                         if(required_stack.size()>0){
                         //     for(auto& required_key : required_stack){
                         //         vertex_rules[u].append("# required ");
@@ -795,7 +811,7 @@ struct fixed_accumulator {
                         fixed_stack<std::u8string_view, 128> prefix_items_array;
                         findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
                         if(!type.empty()){
-                          if (state.current_edge_idx > 1 && child_counts[v]<=1) vertex_rules[u].append(" \",\" ws ");
+                          if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" \",\" ws ");
                           vertex_rules[u].append("\"\\\"");
                           vertex_rules[u].append(v_obj.key);
                           vertex_rules[u].append("\\\"\" ws \":\" ws ");
@@ -836,6 +852,7 @@ struct fixed_accumulator {
                             vertex_rules[v].append("-rule ::= ");
                             size_t x=std::get<1>(edges[edge_start_idx[v] + 1]);
                             const auto& x_obj = std::get<1>(vertices[x]);
+                            if(highest_vertex_id<x)highest_vertex_id=x;
                             if(w_obj.value==u8"array" && x_obj.key==u8"type"){
                                 vertex_rules[v].append("\"[\" ws ( string ( ws \",\" ws string )* )? ws \"]\"\n");
                               //vertex_rules[u].append(x_obj.value);
@@ -881,13 +898,14 @@ struct fixed_accumulator {
                     //         vertex_rules[u].append("\"");
                     //     }
                     // }
+                    else if(u_obj.obj_type==JSON_OBJECT && v_obj.key==u8"type")offset_edge_idx++;
                     else if(u_obj.obj_type==JSON_OBJECT && (v_obj.obj_type==JSON_STRING || v_obj.obj_type==JSON_NUMBER || v_obj.obj_type==JSON_BOOLEAN || v_obj.obj_type==JSON_NULL)){
                         vertex_rules[u].append(" \"");
                         vertex_rules[u].append(getPrimitiveName(v_obj.obj_type));
                         vertex_rules[u].append("\"");
                     }
                     else if (v_obj.is_choice_child) {
-                        if (state.current_edge_idx > 0) vertex_rules[u].append(" | ");
+                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" | ");
                         vertex_rules[u].append(v_obj.key);
                         if(v_obj.key.empty()){
                             vertex_rules[u].append("_branch_");
@@ -895,7 +913,7 @@ struct fixed_accumulator {
                         }
                         vertex_rules[u].append("_rule");
                     } else {
-                        if (state.current_edge_idx > 0) vertex_rules[u].append(" \",\" ws ");
+                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" \",\" ws ");
                         // Emit normal sequential keys and reference links...
                         if(v_obj.key.empty()){
                             vertex_rules[u].append("-branch-");
@@ -922,7 +940,20 @@ struct fixed_accumulator {
                     if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0)
                      vertex_rules[u].append(" \"}\"");
                     vertex_rules[u].append("\n");
+                    visited[u] = true;
+                    if(highest_vertex_id<u)highest_vertex_id=u;
                     traversal_stack.pop();
+                    if(traversal_stack.empty() && highest_vertex_id<vertices.size()-1){
+                        vertex_rules[u].append("# highest_vertex_id ");
+                        vertex_rules[u].append(std::to_string(highest_vertex_id));
+                        vertex_rules[u].append("\n");
+                        while(highest_vertex_id<vertices.size()-1 &&  visited[highest_vertex_id]){
+                            highest_vertex_id++;
+                        }
+                        if(highest_vertex_id<vertices.size()-1){
+                            traversal_stack.push(DFSState{highest_vertex_id, 0});
+                        }
+                    }
                 }
             }
         };
@@ -965,7 +996,7 @@ struct fixed_accumulator {
             if (key == u8"enum") return CHOICE_KIND_ENUM;
             if (key == u8"type") return CHOICE_KIND_TYPE;
             if (key == u8"items") return CHOICE_KIND_ITEMS;
-            if (key == u8"definitions" || key == u8"$defs") return CHOICE_KIND_DEFINITIONS;
+            // if (key == u8"definitions" || key == u8"$defs") return CHOICE_KIND_DEFINITIONS;
             return CHOICE_KIND_NONE;
         }
 
