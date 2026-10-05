@@ -19,6 +19,7 @@
 #include <cmath>
 #include <stack>
 #include <algorithm>
+#include <utility>
 
 namespace sylvanmats::metaphrase{
 
@@ -228,14 +229,14 @@ struct fixed_accumulator {
         size_t resolved_target_idx = 0;     // Left at 0 for now
     };
 
-    enum SCHEMA_CONTEXT {
+    enum SCHEMA_CONTEXT : size_t {
         SCHEMA_MODE,     // Keywords active (type, properties)
         DATAKEY_MODE,    // Keywords suspended, treat keys as literal string fragments
         REGEXKEY_MODE,   // Keywords suspended, treat keys as regex token rules
         SYMBOLDEF_MODE   // Keys are internal references (under $defs)
     };
 
-    enum EDGE_KIND{
+    enum EDGE_KIND : size_t {
         EDGE_KIND_AST=1,
         EDGE_KIND_AST_CHOICE=2,
         EDGE_KIND_PROPERTIES=3,
@@ -363,15 +364,15 @@ struct fixed_accumulator {
                     gbnfAcc.append(" ");
                     gbnfAcc.append(jsonBuffer.substr(cursor, 5));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(idx1));
+                    gbnfAcc.append(std::format("{}", idx1));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(parent_id));
+                    gbnfAcc.append(std::format("{}", parent_id));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(syntax_id));
+                    gbnfAcc.append(std::format("{}", syntax_id));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(choice_flag));
+                    gbnfAcc.append(std::format("{}", choice_flag));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(schemaContext));
+                    gbnfAcc.append(std::format("{}", std::to_underlying(schemaContext)));
                     // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
@@ -381,13 +382,13 @@ struct fixed_accumulator {
                         gbnfAcc.append(" # Edge ");
                         gbnfAcc.append(std::get<1>(vertices.back()).key);
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(std::get<1>(vertices.back()).id));
+                        gbnfAcc.append(std::format("{}", std::get<1>(vertices.back()).id));
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(parent_id));
+                        gbnfAcc.append(std::format("{}", parent_id));
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(edge_kind));
+                        gbnfAcc.append(std::format("{}", std::to_underlying(edge_kind)));
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        gbnfAcc.append(std::format("{}", child_counts[parent_id]));
                         gbnfAcc.append("\n");
                     }
                     else {
@@ -420,15 +421,15 @@ struct fixed_accumulator {
                     gbnfAcc.append(" ");
                     gbnfAcc.append(jsonBuffer.substr(cursor, 1));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(idx1));
+                    gbnfAcc.append(std::format("{}", idx1));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(parent_id));
+                    gbnfAcc.append(std::format("{}", parent_id));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(syntax_id));
+                    gbnfAcc.append(std::format("{}", syntax_id));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(choice_flag));
+                    gbnfAcc.append(std::format("{}", choice_flag));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(schemaContext));
+                    gbnfAcc.append(std::format("{}", std::to_underlying(schemaContext)));
                     // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
@@ -440,13 +441,13 @@ struct fixed_accumulator {
                         gbnfAcc.append(" # Edge ");
                         gbnfAcc.append(std::get<1>(vertices.back()).key);
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(std::get<1>(vertices.back()).id));
+                        gbnfAcc.append(std::format("{}", std::get<1>(vertices.back()).id));
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(parent_id));
+                        gbnfAcc.append(std::format("{}", parent_id));
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(edge_kind));
+                        gbnfAcc.append(std::format("{}", std::to_underlying(edge_kind)));
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        gbnfAcc.append(std::format("{}", child_counts[parent_id]));
                         gbnfAcc.append("\n");
                     }
                     else {
@@ -476,15 +477,15 @@ struct fixed_accumulator {
                     gbnfAcc.append("# Array ");
                     gbnfAcc.append(current_key);
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(idx1));
+                    gbnfAcc.append(std::format("{}", idx1));
                     gbnfAcc.append(" ");
                     gbnfAcc.append(jsonBuffer.substr(cursor, 1));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(parent_id));
+                    gbnfAcc.append(std::format("{}", parent_id));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(syntax_id));
+                    gbnfAcc.append(std::format("{}", syntax_id));
                     gbnfAcc.append(" ");
-                    gbnfAcc.append(std::to_string(choice_flag));
+                    gbnfAcc.append(std::format("{}", choice_flag));
                     // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
                     // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
@@ -496,13 +497,13 @@ struct fixed_accumulator {
                         gbnfAcc.append(" # Edge ");
                         gbnfAcc.append(std::get<1>(vertices.back()).key);
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(parent_id));
+                        gbnfAcc.append(std::format("{}", parent_id));
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(std::get<1>(vertices.back()).id));
+                        gbnfAcc.append(std::format("{}", std::get<1>(vertices.back()).id));
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(edge_kind));
+                        gbnfAcc.append(std::format("{}", std::to_underlying(edge_kind)));
                         gbnfAcc.append(" ");
-                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        gbnfAcc.append(std::format("{}", child_counts[parent_id]));
                         gbnfAcc.append("\n");
                     }
                     else {
@@ -541,13 +542,13 @@ struct fixed_accumulator {
                         // gbnfAcc.append(" # text array Edge ");
                         // gbnfAcc.append(std::get<1>(vertices.back()).key);
                         // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::to_string(idx1));
+                        // gbnfAcc.append(std::format("{}", idx1));
                         // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::to_string(parent_id));
+                        // gbnfAcc.append(std::format("{}", parent_id));
                         // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::to_string(edge_kind));
+                        // gbnfAcc.append(std::format("{}", edge_kind));
                         // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        // gbnfAcc.append(std::format("{}", child_counts[parent_id]));
                         // gbnfAcc.append("\n");
                     }
                     else if(!hitColon){
@@ -583,13 +584,13 @@ struct fixed_accumulator {
                         // gbnfAcc.append(" # text key Edge ");
                         // gbnfAcc.append(std::get<1>(vertices.back()).key);
                         // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::to_string(idx1));
+                        // gbnfAcc.append(std::format("{}", idx1));
                         // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::to_string(parent_id));
+                        // gbnfAcc.append(std::format("{}", parent_id));
                         // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::to_string(edge_kind));
+                        // gbnfAcc.append(std::format("{}", edge_kind));
                         // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        // gbnfAcc.append(std::format("{}", child_counts[parent_id]));
                         // gbnfAcc.append("\n");
                         }
                         // else if(vertices.size()<10)gbnfAcc.append(" # no edge \n");
@@ -651,7 +652,7 @@ struct fixed_accumulator {
                 }
             }
             gbnfAcc.append("# Deferred sum ");
-            gbnfAcc.append(std::to_string(deferred_sum));
+            gbnfAcc.append(std::format("{}", deferred_sum));
             gbnfAcc.append("\n\n");
             std::array<size_t, 8192> edge_offsets{};
             size_t running_sum = 0;
@@ -664,9 +665,9 @@ struct fixed_accumulator {
                 // gbnfAcc.append(" ");
                 // gbnfAcc.append(std::get<1>(vertices[i]).value);
                 // gbnfAcc.append(" ");
-                // gbnfAcc.append(std::to_string(std::get<1>(vertices[i]).id));
+                // gbnfAcc.append(std::format("{}", std::get<1>(vertices[i]).id));
                 // gbnfAcc.append(" ");
-                // gbnfAcc.append(std::to_string(running_sum));
+                // gbnfAcc.append(std::format("{}", running_sum));
                 // gbnfAcc.append("\n");
             }
 
@@ -833,7 +834,7 @@ null ::= "null"
                         //     vertex_rules[u].append("\n# ");
                         //     vertex_rules[u].append(u_obj.key);
                         //     vertex_rules[u].append(" tags array ");
-                        //     vertex_rules[u].append(std::to_string(required_stack.size()));
+                        //     vertex_rules[u].append(std::format("{}", required_stack.size()));
                         //     vertex_rules[u].append("\n");
                         // }
                         std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
@@ -858,7 +859,7 @@ null ::= "null"
                         }
                         if(prefix_items_array.size()>0){
                             // vertex_rules[u].append("# prefixItemsArray ");
-                            // vertex_rules[u].append(std::to_string(prefix_items_array.size()));
+                            // vertex_rules[u].append(std::format("{}", prefix_items_array.size()));
                             // vertex_rules[u].append("\n");
                             vertex_rules[u].append("\"[\" ");
                             
@@ -976,9 +977,9 @@ null ::= "null"
                 }
                 if(traversal_stack.empty() && highest_vertex_id<vertices.size()-1){
                     // vertex_rules[u].append("# highest_vertex_id ");
-                    // vertex_rules[u].append(std::to_string(highest_vertex_id));
+                    // vertex_rules[u].append(std::format("{}", highest_vertex_id));
                     // vertex_rules[u].append(" ");
-                    // vertex_rules[u].append(std::to_string(vertices.size()));
+                    // vertex_rules[u].append(std::format("{}", vertices.size()));
                     // if(!visited[highest_vertex_id])vertex_rules[u].append(" !visited ");
                     // vertex_rules[u].append("\n");
                     while(highest_vertex_id<vertices.size()-1 &&  visited[highest_vertex_id]){
