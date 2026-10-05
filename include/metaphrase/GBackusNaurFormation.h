@@ -372,12 +372,26 @@ struct fixed_accumulator {
                     gbnfAcc.append(std::to_string(choice_flag));
                     gbnfAcc.append(" ");
                     gbnfAcc.append(std::to_string(schemaContext));
-                    gbnfAcc.append("\n");
+                    // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size(), .is_choice_child=choice_flag});
-                    if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
+                    if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
                         // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                         raw_edges.push(RawEdge{parent_id, idx1, EDGE_KIND_AST, schemaContext});
                         child_counts[parent_id]++;
+                        gbnfAcc.append(" # Edge ");
+                        gbnfAcc.append(std::get<1>(vertices.back()).key);
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(std::get<1>(vertices.back()).id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(parent_id));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(edge_kind));
+                        gbnfAcc.append(" ");
+                        gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        gbnfAcc.append("\n");
+                    }
+                    else {
+                        gbnfAcc.append(" # no edge \n");
                     }
                     hitColon=false;
                     hitComma=false;
@@ -995,8 +1009,6 @@ struct fixed_accumulator {
         constexpr bool hasParentalSyntax(const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, fixed_stack<size_t, 64>& parentStack){
             if(parentStack.size()>=2 && (getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE)){
                 if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_PROPERTIES)
-                    return false;
-                if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_ADDITIONAL_PROPERTIES)
                     return false;
                 if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_REQUIRED)
                     return false;
