@@ -592,7 +592,7 @@ struct fixed_accumulator {
                         // gbnfAcc.append(std::to_string(child_counts[parent_id]));
                         // gbnfAcc.append("\n");
                         }
-                        else if(vertices.size()<10)gbnfAcc.append(" # no edge \n");
+                        // else if(vertices.size()<10)gbnfAcc.append(" # no edge \n");
                         hitColon=false;
                         hitComma=false;
                     }
@@ -648,13 +648,6 @@ struct fixed_accumulator {
                     // Look up which vertex index owns this definition name
                     std::get<1>(vertex).resolved_target_idx = resolve_ref_pointer(vertices, std::get<1>(vertex).deferred_ref_path);
                     deferred_sum++;
-                gbnfAcc.append("#\tdeferred idx ");
-                gbnfAcc.append(std::get<1>(vertex).key);
-                gbnfAcc.append(" ");
-                gbnfAcc.append(std::to_string(std::get<1>(vertex).resolved_target_idx));
-                gbnfAcc.append("\t");
-                gbnfAcc.append(std::to_string(child_counts[std::get<1>(vertex).id]));
-                gbnfAcc.append("\n");
                 }
             }
             gbnfAcc.append("# Deferred sum ");
@@ -880,7 +873,7 @@ struct fixed_accumulator {
                           if(child_counts[v]>=2 && w_obj.value==u8"array"){
                             vertex_rules[u].append("-branch-");
                             emit_size_t_as_string(vertex_rules[u], v);
-                            vertex_rules[u].append("-rule \"}\"\n");
+                            vertex_rules[u].append("-rule ");
                             vertex_rules[v].append("-branch-");
                             emit_size_t_as_string(vertex_rules[v], v);
                             vertex_rules[v].append("-rule ::= ");
