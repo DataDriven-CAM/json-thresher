@@ -706,14 +706,15 @@ struct fixed_accumulator {
                 }
             }
             
-            gbnfAcc.append(
-                "ws ::= [ \\t\\n\\r]*\n"
-                "string ::= \"\\\"\" ([^\"])* \"\\\"\"\n"
-                "number ::= [0-9]+ (\".\" [0-9]+)?\n"
-                "integer ::= [0-9]+\n"
-                "boolean ::= \"true\" | \"false\"\n"
-                "null ::= \"null\"\n\n\0"
-              );
+            gbnfAcc.append(R"(
+ws ::= [ \t\n\r]*
+string ::= "\"" [^"\\]* "\""
+number ::= [0-9]+ ("." [0-9]+)?
+integer ::= [0-9]+
+boolean ::= "true" | "false"
+null ::= "null"
+
+)");
             return sylvanmats::metaphrase::fixed_string<16384>(gbnfAcc.data(), gbnfAcc.size());
         }
 
@@ -770,6 +771,7 @@ struct fixed_accumulator {
                     traversal_stack.pop();
                 }
                 else{
+                //std::u8string_view type = findType(u, child_counts, vertices, edges, edge_start_idx);
                 // 1. Declare the rule name on entry
                 if (state.current_edge_idx == 0) {
                     vertex_rules[u].append(u_obj.key);
@@ -838,7 +840,7 @@ struct fixed_accumulator {
                         fixed_stack<std::u8string_view, 128> prefix_items_array;
                         findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
                         if(!type.empty()){
-                          if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" \",\" ws ");
+                          if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" ws \",\" ws ");
                           vertex_rules[u].append("\"\\\"");
                           vertex_rules[u].append(v_obj.key);
                           vertex_rules[u].append("\\\"\" ws \":\" ws ");
@@ -940,7 +942,7 @@ struct fixed_accumulator {
                         }
                         vertex_rules[u].append("_rule");
                     } else {
-                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" \",\" ws ");
+                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" ws \",\" ws ");
                         // Emit normal sequential keys and reference links...
                         if(v_obj.key.empty()){
                             vertex_rules[u].append("-branch-");
@@ -965,7 +967,7 @@ struct fixed_accumulator {
                 } else {
                     // 3. Close rule on exit
                     if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0)
-                     vertex_rules[u].append(" \"}\"");
+                     vertex_rules[u].append(" ws \"}\"");
                     vertex_rules[u].append("\n");
                     visited[u] = true;
                     if(highest_vertex_id<=u)highest_vertex_id=u+1;

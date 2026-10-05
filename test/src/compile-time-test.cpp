@@ -307,7 +307,13 @@ TEST_CASE("test nested structural dependency"){
     CHECK_NE(gbnfView.find("active"), std::string_view::npos);
     CHECK_NE(gbnfView.find("SimpleUser"), std::string_view::npos);
     target_test_environment();
-    CHECK(validate_gbnf(gbnfView, R"({"user": "Alice", "tags": ["Alice", "Matilda"]})"));
+    CHECK(validate_gbnf(gbnfView, R"({
+  "user": {
+    "id": 123,
+    "active": true
+  },
+  "tags": ["Alice", "Matilda"]
+})"));
   }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
