@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <spawn.h>
 #include <sys/wait.h>
+#include <atomic>
 
 #define protected public
 #include "io/json/Binder.h"
@@ -30,9 +31,9 @@
 
 #include "metaphrase/GBackusNaurFormation.h"
 
-    extern char** environ;
+extern char** environ;
 
-    void target_test_environment() {
+void target_test_environment() {
     std::filesystem::path root = std::filesystem::current_path();
     
     // Resolve clean absolute paths
@@ -41,52 +42,64 @@
 
     // Append to PATH
     const char* old_path = std::getenv("PATH");
-    std::string new_path = bin_dir.string() + ":" + (old_path ? old_path : "");
+    std::string new_path = bin_dir.string() + (old_path ? ":" + std::string(old_path) : "");
     setenv("PATH", new_path.c_str(), 1);
 
     // Append to LD_LIBRARY_PATH
     const char* old_ld = std::getenv("LD_LIBRARY_PATH");
-    std::string new_ld = lib_dir.string() + ":" + (old_ld ? old_ld : "");
+    std::string new_ld = lib_dir.string() + (old_ld ? ":" + std::string(old_ld) : "");
     setenv("LD_LIBRARY_PATH", new_ld.c_str(), 1);
 }
 
-bool validate_gbnf(std::string_view gbnfView, std::string_view jsonContent){
-    std::filesystem::path tmpDir=std::filesystem::temp_directory_path();
-    std::string grammarPath = (tmpDir / "schema_test.gbnf").string();
-    std::string jsonPath = (tmpDir / "schema_test.json").string();
-    std::ofstream g_file(grammarPath);
-     g_file << gbnfView;
-     g_file.close();
-    std::ofstream j_file(jsonPath);
-     j_file << jsonContent;
-     j_file.close();
+bool validate_gbnf(std::string_view gbnfView, std::string_view jsonContent) {
+    // Fix #2: Atomic index creates thread-safe unique filenames to eliminate test collisions
+    static std::atomic<size_t> test_counter{0};
+    size_t current_id = test_counter.fetch_add(1, std::memory_order_relaxed);
+
+    std::filesystem::path tmpDir = std::filesystem::temp_directory_path();
+    std::string grammarPath = (tmpDir / ("schema_test_" + std::to_string(current_id) + ".gbnf")).string();
+    std::string jsonPath = (tmpDir / ("schema_test_" + std::to_string(current_id) + ".json")).string();
+
+    // Write contents cleanly
+    {
+        std::ofstream g_file(grammarPath);
+        g_file << gbnfView;
+    }
+    {
+        std::ofstream j_file(jsonPath);
+        j_file << jsonContent;
+    }
+
+    // Fix #1: Lock structural lifetime explicitly down to c_str arrays
     std::array<const char*, 4> args = {
         "test-gbnf-validator", 
-        grammarPath.data(), 
-        jsonPath.data(), 
+        grammarPath.c_str(), 
+        jsonPath.c_str(), 
         nullptr
     };
 
     pid_t pid;
-    // Spawns the executable using PATH resolution (the 'p' variant)
+    // Fix #3: Pass environ cleanly after your target_test_environment() modification
     int spawn_result = posix_spawnp(&pid, args[0], nullptr, nullptr, 
                                     const_cast<char* const*>(args.data()), environ);
     
     if (spawn_result != 0) {
-        // Target binary was not found or failed to execute completely
-        //FAIL("Failed to spawn grammar validator process");
+        std::filesystem::remove(grammarPath);
+        std::filesystem::remove(jsonPath);
         return false;
     }
 
-    // Block synchronously until the specific validator process closes
     int status;
     waitpid(pid, &status, 0);
-    std::cout<<"status "<<status<<" "<<WIFEXITED(status)<<" "<<WEXITSTATUS(status)<<std::endl;
-    CHECK_EQ(WEXITSTATUS(status), 0);
-    // Returns true if test-gbnf-validator exits cleanly with return code 0
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-}
 
+    // Wipe temp file artifacts from disk immediately
+    std::filesystem::remove(grammarPath);
+    std::filesystem::remove(jsonPath);
+
+    // Evaluate exit status cleanly
+    bool success = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    return success;
+}
 TEST_SUITE("compile-time"){
 
 TEST_CASE("test generating grammar components") {

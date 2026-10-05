@@ -52,6 +52,14 @@ jobs:
       run: |
         make
 
+    - name: Build Local test-gbnf-validator
+      run: |
+        cd cpp_modules/llama
+        cmake -B build -DGGML_BUILD_EXAMPLES=OFF -DGGML_BUILD_TESTS=ON
+        cmake --build build --target test-gbnf-validator
+        # Add the generated binary directory directly to the runner profile path
+        echo "${{ github.workspace }}/cpp_modules/llama/build/bin" >> $GITHUB_PATH
+        
     - name: Build doctest Binary (Test Directory Makefile)
       run: |
         cd test
