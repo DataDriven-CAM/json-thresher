@@ -805,6 +805,7 @@ null ::= "null"
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS || (std::get<1>(vertices[v_obj.syntax_id]).key==u8"definitions" || std::get<1>(vertices[v_obj.syntax_id]).key==u8"$defs")){
                         // vertex_rules[u].append("\n# definitions syntax sugar\n");
+                        visited[v]=true;
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED || std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS || std::get<2>(edges[next_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
                         // if(state.current_edge_idx > 0) vertex_rules[u].append(" \",\" ws ");
@@ -903,31 +904,6 @@ null ::= "null"
                           }
                         required_stack.clear();
                     }
-                    // else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_STRING && v_obj.key==u8"type"){
-                    //       vertex_rules[u].append("\"\\\"");
-                    //       vertex_rules[u].append(u_obj.key);
-                    //       vertex_rules[u].append("\\\"\" ws \":\" ws ");
-                    //       vertex_rules[u].append(v_obj.value);
-                    //       visited[v]=true;
-                    // } 
-                    // else if(u_obj.obj_type==JSON_OBJECT && v_obj.obj_type==JSON_STRING){
-                    //     if(std::get<3>(edges[next_edge])==DATAKEY_MODE){
-                    //         // std::string utf8_str(v_obj.value.begin(), v_obj.value.end());
-                    //         // std::string result = std::format("\"{}\"", utf8_str);
-                    //         vertex_rules[u].append_quoted_escaped(v_obj.value);
-                    //     }
-                    //     // else if(v_obj.syntax_id>0){
-                    //     //     vertex_rules[u].append(v_obj.key);
-                    //     //     vertex_rules[u].append(" : \"");
-                    //     //     vertex_rules[u].append(v_obj.value);
-                    //     //     vertex_rules[u].append("\" ");
-                    //     // }
-                    //     else{
-                    //         vertex_rules[u].append(" \"");
-                    //         vertex_rules[u].append("string");
-                    //         vertex_rules[u].append("\"");
-                    //     }
-                    // }
                     else if(u_obj.obj_type==JSON_OBJECT && v_obj.key==u8"type")offset_edge_idx++;
                     else if(u_obj.obj_type==JSON_OBJECT && (v_obj.obj_type==JSON_STRING || v_obj.obj_type==JSON_NUMBER || v_obj.obj_type==JSON_BOOLEAN || v_obj.obj_type==JSON_NULL)){
                         vertex_rules[u].append(" \"");
@@ -1006,8 +982,8 @@ null ::= "null"
             if(parentStack.size()>=2 && (getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE)){
                 if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_PROPERTIES)
                     return false;
-                if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_REQUIRED)
-                    return false;
+                // if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_REQUIRED)
+                //     return false;
                     return true;
             }
             else return false;
