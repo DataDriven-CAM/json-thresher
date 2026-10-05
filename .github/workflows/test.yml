@@ -54,8 +54,8 @@ jobs:
 
     - name: Set Compiler Environment Variables
       run: |
-        echo "CC=gcc-16" >> $GITHUB_ENV
-        echo "CXX=g++-16" >> $GITHUB_ENV
+        echo "CC=gcc" >> $GITHUB_ENV
+        echo "CXX=g++" >> $GITHUB_ENV
 
     - name: Build Core Library (Root Makefile)
       run: |
