@@ -52,15 +52,6 @@ jobs:
         ls -lastr ./cpp_modules/*
         cnpm fmt
 
-    - name: Ensure mime-db is Present (cnpm fallback)
-      run: |
-        if [ ! -d "cpp_modules/mime-db" ]; then
-          echo "⚠️ cnpm skipped mime-db. Fetching manually for C++ test runner..."
-          mkdir -p cpp_modules/mime-db
-          # Fetch the raw JSON straight from the source/npm repository archive
-          curl -s https://githubusercontent.com/jshttp/mime-db/v1.42.0/db.json -o cpp_modules/mime-db/db.json
-        fi
-
     - name: Set Compiler Environment Variables
       run: |
         echo "CC=gcc" >> $GITHUB_ENV
