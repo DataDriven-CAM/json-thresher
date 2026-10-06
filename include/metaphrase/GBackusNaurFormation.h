@@ -772,7 +772,7 @@ null ::= "null"
                     traversal_stack.pop();
                 }
                 else{
-                //std::u8string_view type = findType(u, child_counts, vertices, edges, edge_start_idx);
+                std::u8string_view rootType = findType(u, child_counts, vertices, edges, edge_start_idx);
                 // 1. Declare the rule name on entry
                 if (state.current_edge_idx == 0) {
                     vertex_rules[u].append(u_obj.key);
@@ -782,7 +782,8 @@ null ::= "null"
                         vertex_rules[u].append("-rule");
                     }
                     vertex_rules[u].append(" ::= ");
-                    if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0) vertex_rules[u].append("\"{\" ws ");
+                    if (u_obj.obj_type == JSON_OBJECT && rootType==u8"object") vertex_rules[u].append("\"{\" ws ");
+                    else if (u_obj.obj_type == JSON_OBJECT && rootType==u8"array") vertex_rules[u].append("\"[\" ws ");
                 }
 
                 // 2. Linear traversal over perfectly mapped edges
@@ -824,46 +825,37 @@ null ::= "null"
                         size_t w = std::get<1>(edges[inner_edge]);
                         const auto& w_obj = std::get<1>(vertices[w]);
                         if(highest_vertex_id<=w)highest_vertex_id=w+1;
-                        if(required_stack.size()>0){
-                        //     for(auto& required_key : required_stack){
-                        //         vertex_rules[u].append("# required ");
-                        //         vertex_rules[u].append(required_key);
-                        //         vertex_rules[u].append("\n");
-                        //     }
-                        }
-                        // else if (v_obj.key==u8"tags" && required_stack.size()>0){
-                        //     vertex_rules[u].append("\n# ");
-                        //     vertex_rules[u].append(u_obj.key);
-                        //     vertex_rules[u].append(" tags array ");
-                        //     vertex_rules[u].append(std::format("{}", required_stack.size()));
-                        //     vertex_rules[u].append("\n");
-                        // }
                         std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
                         fixed_stack<std::u8string_view, 128> prefix_items_array;
                         findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
                         if(!type.empty()){
+                            if(required_stack.size()>0 && !required_stack.anyOf(v_obj.key)){
+                                vertex_rules[u].append(" (");
+                            }
                           if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" ws \",\" ws ");
                           vertex_rules[u].append("\"\\\"");
                           vertex_rules[u].append(v_obj.key);
                           vertex_rules[u].append("\\\"\" ws \":\" ws ");
                         }
                         if(w_obj.resolved_target_idx>0){
-                            vertex_rules[u].append("# deferred ref path ");
-                            vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
-                            vertex_rules[u].append("\n");
-                            // vertex_rules[u].append("\"\\\"");
-                            // vertex_rules[u].append(v_obj.key);
-                            // vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                            // vertex_rules[u].append("# deferred ref path ");
                             // vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
                             // vertex_rules[u].append("\n");
+                            if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" \",\" ");
+                            vertex_rules[u].append("\"\\\"");
+                            vertex_rules[u].append(v_obj.key);
+                            vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                            vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
+                            vertex_rules[u].append("\n");
                             visited[v]=true;
+                            offset_edge_idx++;
                         }
                         if(prefix_items_array.size()>0){
                             // vertex_rules[u].append("# prefixItemsArray ");
                             // vertex_rules[u].append(std::format("{}", prefix_items_array.size()));
                             // vertex_rules[u].append("\n");
+                            vertex_rules[u].append("\"[\" ws (");
                             vertex_rules[u].append("\"[\" ");
-                            
                             for(size_t piCount=0;piCount<prefix_items_array.size();piCount++){
                                 if(piCount>0){
                                     vertex_rules[u].append("\",\" ");
@@ -872,9 +864,22 @@ null ::= "null"
                                 vertex_rules[u].append(prefix_items_array[piCount]);
                                 vertex_rules[u].append(" ws ");
                             }
-                            vertex_rules[u].append("]\" ws ");
+                            vertex_rules[u].append("\"]\" ");
+                            vertex_rules[u].append(" ( ws \",\" ws ");
+                            vertex_rules[u].append("\"[\" ");
+                            for(size_t piCount=0;piCount<prefix_items_array.size();piCount++){
+                                if(piCount>0){
+                                    vertex_rules[u].append("\",\" ");
+                                }
+                                vertex_rules[u].append(" ws ");
+                                vertex_rules[u].append(prefix_items_array[piCount]);
+                                vertex_rules[u].append(" ws ");
+                            }
+                            vertex_rules[u].append("\"]\")*)? ws \"]\" ");
+                            visited[w]=true;
+                            visited[v]=true;
                         }
-                          if(child_counts[v]>=2 && w_obj.value==u8"array"){
+                        else if(child_counts[v]>=2 && w_obj.value==u8"array"){
                             vertex_rules[u].append("-branch-");
                             emit_size_t_as_string(vertex_rules[u], v);
                             vertex_rules[u].append("-rule ");
@@ -899,6 +904,9 @@ null ::= "null"
                           }
                           else{
                             vertex_rules[u].append(w_obj.value);
+                            if(required_stack.size()>0 && !required_stack.anyOf(v_obj.key)){
+                                vertex_rules[u].append(")?");
+                            }
                             visited[w]=true;
                             visited[v]=true;
                           }
@@ -943,8 +951,10 @@ null ::= "null"
                     state.current_edge_idx++;
                 } else {
                     // 3. Close rule on exit
-                    if (u_obj.obj_type == JSON_OBJECT && child_counts[u]>0)
+                    if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"object")
                      vertex_rules[u].append(" ws \"}\"");
+                    else if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"array")
+                     vertex_rules[u].append(" ws \"]\"");
                     vertex_rules[u].append("\n");
                     visited[u] = true;
                     if(highest_vertex_id<=u)highest_vertex_id=u+1;
@@ -1005,8 +1015,8 @@ null ::= "null"
             if (key == u8"anyOf") return CHOICE_KIND_ANYOF;
             if (key == u8"allOf") return CHOICE_KIND_ALLOF;
             if (key == u8"enum") return CHOICE_KIND_ENUM;
-            if (key == u8"type") return CHOICE_KIND_TYPE;
-            if (key == u8"items") return CHOICE_KIND_ITEMS;
+            // if (key == u8"type") return CHOICE_KIND_TYPE;
+            // if (key == u8"items") return CHOICE_KIND_ITEMS;
             // if (key == u8"definitions" || key == u8"$defs") return CHOICE_KIND_DEFINITIONS;
             return CHOICE_KIND_NONE;
         }

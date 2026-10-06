@@ -238,7 +238,7 @@ TEST_CASE("test fixed array / tuple"){
     CHECK_NE(gbnfView.find("point_2d"), std::string_view::npos);
     CHECK_NE(gbnfView.find("number"), std::string_view::npos);
     target_test_environment();
-    CHECK(validate_gbnf(gbnfView, R"({"point_2d": [{0.0, 0.0}, {1.0, 1.0}]})"));
+    CHECK(validate_gbnf(gbnfView, R"({"point_2d": [[0.0, 0.0], [1.0, 1.0]]})"));
   }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
@@ -271,6 +271,8 @@ TEST_CASE("test optional fields"){
     CHECK_NE(gbnfView.find("age"), std::string_view::npos);
     target_test_environment();
     CHECK(validate_gbnf(gbnfView, R"({"name": "Alice", "age": 100})"));
+    CHECK(validate_gbnf(gbnfView, R"({"name": "Alice"})"));
+    FAIL_CHECK(validate_gbnf(gbnfView, R"({"age": 100})"));
     }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
