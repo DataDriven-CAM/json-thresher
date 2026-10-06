@@ -14,7 +14,7 @@
         "fmt": "fmtlib/fmt",
         "mime-db": "1.42.0",
         "json-graph-specification": "jsongraph/json-graph-specification",
-        "llama": "ggml-org/llama.cpp#master"
+        "llama": "ggml-org/llama.cpp"
     },
     "scripts": {
         "clean": "make clean",

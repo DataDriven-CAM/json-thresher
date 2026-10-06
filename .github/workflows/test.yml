@@ -63,6 +63,7 @@ jobs:
 
     - name: Build Local test-gbnf-validator
       run: |
+        ls -lastr ./cpp_modules/
         cd cpp_modules/llama
         # Clean old broken build artifacts if necessary
         rm -rf build
