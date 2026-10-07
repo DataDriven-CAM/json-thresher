@@ -1,5 +1,5 @@
 #define DOCTEST_CONFIG_TREAT_CHAR_STAR_AS_STRING
-#define DOCTEST_CONFIG_USE_STD_HEADERS // Add this line
+#define DOCTEST_CONFIG_USE_STD_HEADERS
 #include <doctest/doctest.h>
 
 #include <cstdio>
@@ -42,12 +42,12 @@ void target_test_environment() {
 
     // Append to PATH
     const char* old_path = std::getenv("PATH");
-    std::string new_path = bin_dir.string() + (old_path ? ":" + std::string(old_path) : "");
+    std::string new_path = bin_dir.native_encoded_string() + (old_path ? ":" + std::string(old_path) : "");
     setenv("PATH", new_path.c_str(), 1);
 
     // Append to LD_LIBRARY_PATH
     const char* old_ld = std::getenv("LD_LIBRARY_PATH");
-    std::string new_ld = lib_dir.string() + (old_ld ? ":" + std::string(old_ld) : "");
+    std::string new_ld = lib_dir.native_encoded_string() + (old_ld ? ":" + std::string(old_ld) : "");
     setenv("LD_LIBRARY_PATH", new_ld.c_str(), 1);
 }
 
@@ -57,8 +57,8 @@ bool validate_gbnf(std::string_view gbnfView, std::string_view jsonContent) {
     size_t current_id = test_counter.fetch_add(1, std::memory_order_relaxed);
 
     std::filesystem::path tmpDir = std::filesystem::temp_directory_path();
-    std::string grammarPath = (tmpDir / ("schema_test_" + std::to_string(current_id) + ".gbnf")).string();
-    std::string jsonPath = (tmpDir / ("schema_test_" + std::to_string(current_id) + ".json")).string();
+    std::string grammarPath = (tmpDir / ("schema_test_" + std::to_string(current_id) + ".gbnf")).native_encoded_string();
+    std::string jsonPath = (tmpDir / ("schema_test_" + std::to_string(current_id) + ".json")).native_encoded_string();
 
     // Write contents cleanly
     {
@@ -124,7 +124,7 @@ TEST_CASE("test generic primitives"){
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
-    CHECK_EQ(gbnfView.size(), 619);
+    CHECK_EQ(gbnfView.size(), 560);
     // CHECK_NE(gbnfView.find("id"), std::string_view::npos);
     // CHECK_NE(gbnfView.find("name"), std::string_view::npos);
 
@@ -142,7 +142,6 @@ TEST_CASE("test generic primitives"){
 
 TEST_CASE("test simple primitives"){
   try{
-    // Ensure static storage duration so the view points to persistent data
     static constexpr std::u8string_view sample_schema = u8R"({
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
@@ -156,7 +155,7 @@ TEST_CASE("test simple primitives"){
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
-    CHECK_EQ(gbnfView.size(), 549);
+    CHECK_EQ(gbnfView.size(), 347);
     CHECK_NE(gbnfView.find("id"), std::string_view::npos);
     CHECK_NE(gbnfView.find("name"), std::string_view::npos);
 
@@ -191,7 +190,7 @@ TEST_CASE("test homogeneous vector"){
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
-    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_EQ(gbnfView.size(), 387);
     CHECK_NE(gbnfView.find("tags"), std::string_view::npos);
     target_test_environment();
     std::string_view gbnfView2=R"(root   ::= "{" ws "\"tags\"" ws ":" ws string-array "}" ws
@@ -201,6 +200,39 @@ string ::= "\"" [^"\\]* "\"" ws
 ws  ::= [ \t\n\r]*
 )";
     CHECK(validate_gbnf(gbnfView, R"({"tags": ["Alice", "Matilda"]})"));
+   }
+  catch(std::out_of_range& e){
+    std::cout << "out of range "<<e.what()<<std::endl;
+  }
+  catch(std::exception& e){
+    std::cout << "exception "<<e.what()<<std::endl;
+  }
+}
+
+TEST_CASE("test enumerated colors"){
+  try{
+    // Ensure static storage duration so the view points to persistent data
+    static constexpr std::u8string_view sample_schema = u8R"({
+  "$schema": "https://json-schema.org",
+  "type": "object",
+  "properties": {
+    "color": {
+      "type": "string",
+      "enum": ["red", "amber", "green"]
+    }
+  },
+  "required": ["color"],
+  "additionalProperties": false
+})";
+
+    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
+    constexpr std::string_view gbnfView=gbnf.view();
+    std::cout << gbnfView<<std::endl;
+    CHECK_EQ(gbnfView.size(), 688);
+    CHECK_NE(gbnfView.find("color"), std::string_view::npos);
+    target_test_environment();
+    CHECK(validate_gbnf(gbnfView, R"({"color": "amber"})"));
    }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
@@ -234,7 +266,7 @@ TEST_CASE("test fixed array / tuple"){
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout<<"prefixItems " << gbnfView<<std::endl;
-    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_EQ(gbnfView.size(), 421);
     CHECK_NE(gbnfView.find("point_2d"), std::string_view::npos);
     CHECK_NE(gbnfView.find("number"), std::string_view::npos);
     target_test_environment();
@@ -266,7 +298,7 @@ TEST_CASE("test optional fields"){
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
-    CHECK_EQ(gbnfView.size(), 178);
+    CHECK_EQ(gbnfView.size(), 660);
     CHECK_NE(gbnfView.find("name"), std::string_view::npos);
     CHECK_NE(gbnfView.find("age"), std::string_view::npos);
     target_test_environment();
