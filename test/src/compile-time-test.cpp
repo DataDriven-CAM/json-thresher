@@ -414,8 +414,14 @@ TEST_CASE("test polymorphism"){
     CHECK_EQ(gbnfView.size(), 178);
     CHECK_NE(gbnfView.find("status"), std::string_view::npos);
     CHECK_NE(gbnfView.find("code"), std::string_view::npos);
+    CHECK_NE(gbnfView.find("data"), std::string_view::npos);
     target_test_environment();
-    CHECK(validate_gbnf(gbnfView, R"({"user": "Alice", "tags": ["Alice", "Matilda"]})"));
+    CHECK(validate_gbnf(gbnfView, R"({
+  "response": {
+    "status": "success",
+    "data": "Your operation completed perfectly."
+  }
+})"));
   }
   catch(std::out_of_range& e){
     std::cout << "out of range "<<e.what()<<std::endl;
@@ -441,7 +447,40 @@ TEST_CASE("test jgf 2.0 binding"){
     CHECK_NE(gbnfView.find("edges"), std::string_view::npos);
     CHECK_NE(gbnfView.find("root"), std::string_view::npos);
     target_test_environment();
-    CHECK(validate_gbnf(gbnfView, R"({"user": "Alice", "tags": ["Alice", "Matilda"]})"));
+    CHECK(validate_gbnf(gbnfView, R"({
+  "graph": {
+    "id": "social-network-01",
+    "type": "social",
+    "label": "Small Friend Network",
+    "directed": true,
+    "nodes": {
+      "node_alice": {
+        "label": "Alice",
+        "metadata": {
+          "age": 30
+        }
+      },
+      "node_bob": {
+        "label": "Bob",
+        "metadata": {
+          "age": 28
+        }
+      }
+    },
+    "edges": [
+      {
+        "source": "node_alice",
+        "target": "node_bob",
+        "relation": "knows",
+        "directed": true,
+        "metadata": {
+          "since": "2024-01-15"
+        }
+      }
+    ]
+  }
+}
+)"));
 
 
 }

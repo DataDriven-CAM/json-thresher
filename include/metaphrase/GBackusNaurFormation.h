@@ -242,10 +242,14 @@ struct fixed_accumulator {
         EDGE_KIND_PROPERTIES=3,
         EDGE_KIND_ADDITIONAL_PROPERTIES=4,
         EDGE_KIND_DEFINITIONS=5,
-        EDGE_KIND_REQUIRED=6,
-        EDGE_KIND_ITEMS=7,
-        EDGE_KIND_PREFIX_ITEMS=8,
-        EDGE_KIND_ENUM=9,
+        EDGE_KIND_REF=6,
+        EDGE_KIND_REQUIRED=7,
+        EDGE_KIND_ITEMS=8,
+        EDGE_KIND_PREFIX_ITEMS=9,
+        EDGE_KIND_ENUM=10,
+        EDGE_KIND_ONEOF=11,
+        EDGE_KIND_ANYOF=12,
+        EDGE_KIND_ALLOF=13,
     };
 
     enum CHOICE_KIND{
@@ -388,43 +392,13 @@ struct fixed_accumulator {
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    // gbnfAcc.append("# Object ");
-                    // gbnfAcc.append(current_key);
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(jsonBuffer.substr(cursor, 1));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::format("{}", idx1));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::format("{}", parent_id));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::format("{}", syntax_id));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::format("{}", choice_flag));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::format("{}", std::to_underlying(schemaContext)));
-                    // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
-                    // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                     keyStart = 0;
                     keyEnd = 0;
                    if(!firstObject && vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
                         raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
-                        // gbnfAcc.append(" # Edge ");
-                        // gbnfAcc.append(std::get<1>(vertices.back()).key);
-                        // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::format("{}", std::get<1>(vertices.back()).id));
-                        // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::format("{}", parent_id));
-                        // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::format("{}", std::to_underlying(edge_kind)));
-                        // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::format("{}", child_counts[parent_id]));
-                        // gbnfAcc.append("\n");
                     }
-                    // else {
-                    //     gbnfAcc.append(" # no edge \n");
-                    // }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
@@ -446,41 +420,13 @@ struct fixed_accumulator {
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    // gbnfAcc.append("# Array ");
-                    // gbnfAcc.append(current_key);
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::format("{}", idx1));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(jsonBuffer.substr(cursor, 1));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::format("{}", parent_id));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::format("{}", syntax_id));
-                    // gbnfAcc.append(" ");
-                    // gbnfAcc.append(std::format("{}", choice_flag));
-                    // gbnfAcc.append("\n");
                     vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
-                    // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                     keyStart = 0;
                     keyEnd = 0;
                     if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || !is_schema_keyword(current_key))){
                         raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
-                        // gbnfAcc.append(" # Edge ");
-                        // gbnfAcc.append(std::get<1>(vertices.back()).key);
-                        // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::format("{}", parent_id));
-                        // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::format("{}", std::get<1>(vertices.back()).id));
-                        // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::format("{}", std::to_underlying(edge_kind)));
-                        // gbnfAcc.append(" ");
-                        // gbnfAcc.append(std::format("{}", child_counts[parent_id]));
-                        // gbnfAcc.append("\n");
                     }
-                    // else {
-                    //     gbnfAcc.append(" # no edge \n");
-                    // }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
@@ -495,24 +441,22 @@ struct fixed_accumulator {
                     while(cursor<jsonBuffer.size() && jsonBuffer[cursor]!='"'){if(jsonBuffer[cursor]=='\\'){cursor++;};cursor++;c++;};
                     if(std::get<1>(vertices[parentStack.back()]).obj_type==JSON_ARRAY){
                         size_t idx1 = vertices.size();
+                        std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                         size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
+                        SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
+                        EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
                         size_t syntax_id=parent_id;
-                        if(parentStack.size()>=2){
+                        std::u8string_view deferred_ref_path=u8"";
+                        if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
-                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
+                        else if(current_key==u8"$ref"){
+                            schemaContext=DATAKEY_MODE;
+                            deferred_ref_path=jsonBuffer.substr(startOffset, cursor - startOffset);
+                        }
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
                         // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
-                        EDGE_KIND edge_kind=EDGE_KIND_AST;
-                        if(std::get<1>(vertices[parentStack.back()]).is_choice_child){
-                            edge_kind=EDGE_KIND_AST_CHOICE;
-                        }
-                        else if(std::get<1>(vertices[parentStack.back()]).key==u8"required"){
-                            edge_kind=EDGE_KIND_REQUIRED;
-                        }
-                        else if(std::get<1>(vertices[parentStack.back()]).key==u8"enum"){
-                            edge_kind=EDGE_KIND_ENUM;
-                        }
-                        raw_edges.push(RawEdge{parent_id, idx1, edge_kind});
+                        raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
                     }
                     else if(!hitColon){
@@ -559,11 +503,11 @@ struct fixed_accumulator {
                     size_t c=0;
                     while((jsonBuffer[cursor]>='0' && jsonBuffer[cursor]<='9') || jsonBuffer[cursor]=='.'){if(!hitPeriod && jsonBuffer[cursor]=='.')hitPeriod=true;cursor++;c++;};
                     double val{};
+                    EDGE_KIND edge_kind=EDGE_KIND_AST;
                     if(hitPeriod){
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
                         // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
-                        EDGE_KIND edge_kind=EDGE_KIND_AST;
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, edge_kind});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
@@ -571,7 +515,7 @@ struct fixed_accumulator {
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
                         // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
-                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, EDGE_KIND_AST});
+                        raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, edge_kind});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
                     hitColon=false;
@@ -693,7 +637,7 @@ null ::= "null"
                 size_t u = state.vertex_id;
                 const auto& u_obj = std::get<1>(vertices[u]);
 
-                if(u_obj.obj_type==JSON_OBJECT && child_counts[u]==1 && std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key==u8"type"){
+                if(u_obj.obj_type==JSON_OBJECT && u==0 && child_counts[u]==1 && std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key==u8"type"){
                     vertex_rules[u].append("root ::= \"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
                     vertex_rules[u].append("value  ::= object | array | string | number | \"true\" | \"false\" | \"null\"\n");
                     vertex_rules[u].append("object ::= \"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
@@ -705,19 +649,17 @@ null ::= "null"
                     break;
                 }
                 
-                if(is_schema_keyword(u_obj.key) && u_obj.key!=u8"type"){
-                    // vertex_rules[u].append("\n# ");
-                    // vertex_rules[u].append(u_obj.key);
-                    // vertex_rules[u].append(" should not be connected to anything\n");
+                if(is_schema_keyword(u_obj.key)){
                     if (!visited[u]) {
                     visited[u] = true;
                     }
                     traversal_stack.pop();
+                    offset_edge_idx=0;
                 }
                 else{
                 std::u8string_view rootType = findType(u, child_counts, vertices, edges, edge_start_idx);
                 // 1. Declare the rule name on entry
-                if (state.current_edge_idx == 0) {
+                if (state.current_edge_idx == 0 && child_counts[u]>0) {
                     vertex_rules[u].append(u_obj.key);
                     if(u_obj.key.empty()){
                         vertex_rules[u].append("-branch-");
@@ -729,13 +671,14 @@ null ::= "null"
                     else if (u_obj.obj_type == JSON_OBJECT && rootType==u8"array") vertex_rules[u].append("\"[\" ws ");
                 }
 
-                // 2. Linear traversal over perfectly mapped edges
+                // 2. Linear traversal over mapped edges
                 if (state.current_edge_idx < child_counts[u]) {
                     size_t next_edge = edge_start_idx[u] + state.current_edge_idx;
                     size_t v = std::get<1>(edges[next_edge]);
                     const auto& v_obj = std::get<1>(vertices[v]);
                     if(highest_vertex_id<=v)highest_vertex_id=v+1;
 
+                    std::u8string_view choiceDelimiter = (std::get<1>(vertices[v_obj.syntax_id]).key==u8"oneOf") ? u8" | " : u8" \",\" ";
                     if(v_obj.resolved_target_idx>0){
                         size_t r=v_obj.resolved_target_idx;
                         const auto& r_obj=std::get<1>(vertices[r]);
@@ -751,17 +694,37 @@ null ::= "null"
                         // vertex_rules[u].append("\n# definitions syntax sugar\n");
                         visited[v]=true;
                     }
+                    else if(v_obj.resolved_target_idx>0){
+                        // vertex_rules[u].append("\n# reference syntax sugar\n");
+                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(choiceDelimiter);
+                        vertex_rules[u].append("\"\\\"");
+                        vertex_rules[u].append(v_obj.key);
+                        vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                        vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
+                        visited[v]=true;
+                    }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED || std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS || std::get<2>(edges[next_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
-                        // if(state.current_edge_idx > 0) vertex_rules[u].append(" \",\" ws ");
-                        // vertex_rules[u].append("\"\\\"");
-                        // vertex_rules[u].append(v_obj.key);
-                        // vertex_rules[u].append("\\\"\" ws \":\" ws ");
-                        // vertex_rules[u].append(v_obj.value);
-                        //vertex_rules[u].append("\n# required impl here\n");
                         visited[v]=true;
 
                     }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES){
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF){
+                        if(state.current_edge_idx > 0) vertex_rules[u].append(" | ws ");
+                        // vertex_rules[u].append("\n# oneOf impl here\n");
+                        vertex_rules[u].append(v_obj.key);
+                        // vertex_rules[v].append(v_obj.key);
+                        if(v_obj.key.empty()){
+                            vertex_rules[u].append("-branch-");
+                            emit_size_t_as_string(vertex_rules[u], v);
+                            vertex_rules[u].append("-rule ");
+                            // vertex_rules[v].append("-branch-");
+                            // emit_size_t_as_string(vertex_rules[v], v);
+                            // vertex_rules[v].append("-rule ::= ");
+                        }
+                        
+                        //visited[v]=true;
+
+                    }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
                         fixed_stack<std::u8string_view, 128> required_stack;
                         findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
                         size_t inner_edge = edge_start_idx[v] + 0;
@@ -790,12 +753,11 @@ null ::= "null"
                             vertex_rules[u].append("\"\\\"");
                             vertex_rules[u].append(v_obj.key);
                             vertex_rules[u].append("\\\"\" ws \":\" ws ");
-                            vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
-                            vertex_rules[u].append("\n");
-                            visited[v]=true;
+                            vertex_rules[u].append(std::get<1>(vertices[w_obj.resolved_target_idx]).key);
+                            visited[w]=true;
                             offset_edge_idx++;
                         }
-                        if(prefix_items_array.size()>0){
+                        else if(prefix_items_array.size()>0){
                             // vertex_rules[u].append("# prefixItemsArray ");
                             // vertex_rules[u].append(std::format("{}", prefix_items_array.size()));
                             // vertex_rules[u].append("\n");
@@ -840,7 +802,7 @@ null ::= "null"
                             visited[w]=true;
                             visited[v]=true;
                         }
-                        else if(child_counts[v]>=2 && w_obj.value==u8"array"){
+                        else if(child_counts[v]>=2 && w_obj.value==u8"array" && v_obj.resolved_target_idx==0){
                             vertex_rules[u].append("-branch-");
                             emit_size_t_as_string(vertex_rules[u], v);
                             vertex_rules[u].append("-rule ");
@@ -873,23 +835,27 @@ null ::= "null"
                           }
                         required_stack.clear();
                     }
-                    else if(u_obj.obj_type==JSON_OBJECT && v_obj.key==u8"type")offset_edge_idx++;
+                    else if(u_obj.obj_type==JSON_OBJECT && v_obj.key==u8"type"){
+                        offset_edge_idx++;
+                        visited[v]=true;
+                    }
                     else if(u_obj.obj_type==JSON_OBJECT && (v_obj.obj_type==JSON_STRING || v_obj.obj_type==JSON_NUMBER || v_obj.obj_type==JSON_BOOLEAN || v_obj.obj_type==JSON_NULL)){
                         vertex_rules[u].append(" \"");
                         vertex_rules[u].append(getPrimitiveName(v_obj.obj_type));
                         vertex_rules[u].append("\"");
                     }
                     else if (v_obj.is_choice_child) {
-                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" | ");
+                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" ||| ");
                         vertex_rules[u].append(v_obj.key);
                         if(v_obj.key.empty()){
-                            vertex_rules[u].append("_branch_");
+                            vertex_rules[u].append("-branch-");
                             emit_size_t_as_string(vertex_rules[u], v);
+                            vertex_rules[u].append("-rule");
                         }
-                        vertex_rules[u].append("_rule");
-                    } else {
+                    } else if(child_counts[u]>0){
                         if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" ws \",\" ws ");
                         // Emit normal sequential keys and reference links...
+                        vertex_rules[u].append(v_obj.key);
                         if(v_obj.key.empty()){
                             vertex_rules[u].append("-branch-");
                             emit_size_t_as_string(vertex_rules[u], v);
@@ -906,29 +872,28 @@ null ::= "null"
                     
                     if (!visited[v]) {
                         visited[v] = true;
-                        if(v_obj.obj_type!=JSON_STRING && v_obj.obj_type!=JSON_NUMBER && v_obj.obj_type!=JSON_BOOLEAN && v_obj.obj_type!=JSON_NULL)
+                        if(v_obj.obj_type!=JSON_STRING && v_obj.obj_type!=JSON_NUMBER && v_obj.obj_type!=JSON_BOOLEAN && v_obj.obj_type!=JSON_NULL){
                             traversal_stack.push(DFSState{v, 0});
+                            offset_edge_idx=0;
+                        }
                     }
                     state.current_edge_idx++;
                 } else {
                     // 3. Close rule on exit
-                    if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"object")
-                     vertex_rules[u].append(" ws \"}\"");
-                    else if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"array")
-                     vertex_rules[u].append(" ws \"]\"");
-                    vertex_rules[u].append("\n");
+                    if(child_counts[u]>0){
+                        if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"object")
+                        vertex_rules[u].append(" ws \"}\"");
+                        else if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"array")
+                        vertex_rules[u].append(" ws \"]\"");
+                        vertex_rules[u].append("\n");
+                    }
                     visited[u] = true;
                     if(highest_vertex_id<=u)highest_vertex_id=u+1;
                     traversal_stack.pop();
+                    offset_edge_idx=0;
                 }
                 }
                 if(traversal_stack.empty() && highest_vertex_id<vertices.size()-1){
-                    // vertex_rules[u].append("# highest_vertex_id ");
-                    // vertex_rules[u].append(std::format("{}", highest_vertex_id));
-                    // vertex_rules[u].append(" ");
-                    // vertex_rules[u].append(std::format("{}", vertices.size()));
-                    // if(!visited[highest_vertex_id])vertex_rules[u].append(" !visited ");
-                    // vertex_rules[u].append("\n");
                     while(highest_vertex_id<vertices.size()-1 &&  visited[highest_vertex_id]){
                         highest_vertex_id++;
                     }
@@ -951,11 +916,9 @@ null ::= "null"
         template<size_t VCapacity>
         constexpr bool hasParentalSyntax(const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, fixed_stack<size_t, 64>& parentStack){
             if(parentStack.size()>=2 && (getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE)){
-                if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_PROPERTIES)
-                    return false;
-                // if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_REQUIRED)
+                // if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_PROPERTIES)
                 //     return false;
-                    return true;
+                return true;
             }
             else return false;
         }
@@ -964,9 +927,13 @@ null ::= "null"
             if (key == u8"properties") return EDGE_KIND_PROPERTIES;
             if (key == u8"additionalProperties") return EDGE_KIND_ADDITIONAL_PROPERTIES;
             if (key == u8"definitions" || key == u8"$defs") return EDGE_KIND_DEFINITIONS;
+            if (key == u8"$ref") return EDGE_KIND_REF;
             if (key == u8"required") return EDGE_KIND_REQUIRED;
             if (key == u8"items") return EDGE_KIND_ITEMS;
             if (key == u8"prefixItems") return EDGE_KIND_PREFIX_ITEMS;
+            if (key == u8"oneOf") return EDGE_KIND_ONEOF;
+            if (key == u8"anyOf") return EDGE_KIND_ANYOF;
+            if (key == u8"allOf") return EDGE_KIND_ALLOF;
             if (getChoiceSyntax(key)!=CHOICE_KIND_NONE) return EDGE_KIND_AST_CHOICE;
             return EDGE_KIND_AST;
         }
@@ -975,10 +942,6 @@ null ::= "null"
             if (key == u8"oneOf") return CHOICE_KIND_ONEOF;
             if (key == u8"anyOf") return CHOICE_KIND_ANYOF;
             if (key == u8"allOf") return CHOICE_KIND_ALLOF;
-            // if (key == u8"enum") return CHOICE_KIND_ENUM;
-            // if (key == u8"type") return CHOICE_KIND_TYPE;
-            // if (key == u8"items") return CHOICE_KIND_ITEMS;
-            // if (key == u8"definitions" || key == u8"$defs") return CHOICE_KIND_DEFINITIONS;
             return CHOICE_KIND_NONE;
         }
 
