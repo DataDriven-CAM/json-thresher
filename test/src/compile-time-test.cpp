@@ -450,39 +450,36 @@ TEST_CASE("test jgf 2.0 binding"){
     CHECK(validate_gbnf(gbnfView, R"({
   "graph": {
     "id": "social-network-01",
-    "type": "social",
     "label": "Small Friend Network",
     "directed": true,
+    "type": "social",
+    "metadata": {},
     "nodes": {
       "node_alice": {
         "label": "Alice",
-        "metadata": {
-          "age": 30
-        }
+        "metadata": { "age": 30 }
       },
       "node_bob": {
         "label": "Bob",
-        "metadata": {
-          "age": 28
-        }
+        "metadata": { "age": 28 }
       }
     },
     "edges": [
       {
+        "id": "edge_1",
         "source": "node_alice",
         "target": "node_bob",
         "relation": "knows",
         "directed": true,
-        "metadata": {
-          "since": "2024-01-15"
-        }
+        "metadata": { "since": "2024-01-15" }
       }
     ]
   }
-}
-)"));
+})"));
 
-
+  std::ofstream gbnfFile("jgf2.gbnf");
+  gbnfFile << gbnfView;
+  gbnfFile.close();
 }
 
 TEST_CASE("test meta of typing") {

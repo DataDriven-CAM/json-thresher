@@ -216,19 +216,6 @@ struct fixed_accumulator {
         JSON_NULL
     };
 
-    struct jobject{
-        OBJECT_TYPE obj_type;
-        size_t id=0;
-        size_t parent_id=0;
-        size_t syntax_id=0;
-        std::u8string_view key{};
-        std::u8string_view value{};
-        size_t depth=0;
-        bool is_choice_child = false; // Flag to indicate if this node is syntax for alternation children
-        std::u8string_view deferred_ref_path{}; // e.g., "#/definitions/graph"
-        size_t resolved_target_idx = 0;     // Left at 0 for now
-    };
-
     enum SCHEMA_CONTEXT : size_t {
         SCHEMA_MODE,     // Keywords active (type, properties)
         DATAKEY_MODE,    // Keywords suspended, treat keys as literal string fragments
@@ -237,8 +224,9 @@ struct fixed_accumulator {
     };
 
     enum EDGE_KIND : size_t {
+        EDGE_KIND_NONE=0,
         EDGE_KIND_AST=1,
-        EDGE_KIND_AST_CHOICE=2,
+        EDGE_KIND_PATTERN_PROPERTIES=2,
         EDGE_KIND_PROPERTIES=3,
         EDGE_KIND_ADDITIONAL_PROPERTIES=4,
         EDGE_KIND_DEFINITIONS=5,
@@ -246,22 +234,76 @@ struct fixed_accumulator {
         EDGE_KIND_REQUIRED=7,
         EDGE_KIND_TYPE=8,
         EDGE_KIND_ITEMS=9,
-        EDGE_KIND_PREFIX_ITEMS=910,
+        EDGE_KIND_PREFIX_ITEMS=10,
         EDGE_KIND_ENUM=11,
         EDGE_KIND_ONEOF=12,
         EDGE_KIND_ANYOF=13,
         EDGE_KIND_ALLOF=14,
+        EDGE_KIND_DEFAULT=15,
+        EDGE_KIND_ANCHOR=16,
+        EDGE_KIND_DYNAMIC_ANCHOR=17,
+        EDGE_KIND_DYNAMIC_REF=18,
+        EDGE_KIND_VOCABULARY=19,
+        EDGE_KIND_COMMENT=20,
+        EDGE_KIND_NOT=21,
+        EDGE_KIND_IF=22,
+        EDGE_KIND_THEN=23,
+        EDGE_KIND_ELSE=24,
+        EDGE_KIND_DEPENDENT_SCHEMAS=25,
+        EDGE_KIND_DEPENDENT_REQUIRED=26,
+        EDGE_KIND_CONTAINS=27,
+        EDGE_KIND_PROPERTY_NAMES=28,
+        EDGE_KIND_UNEVALUATED_ITEMS=29,
+        EDGE_KIND_UNEVALUATED_PROPERTIES=30,
+        EDGE_KIND_MIN_ITEMS=31,
+        EDGE_KIND_MAX_ITEMS=32,
+        EDGE_KIND_UNIQUE_ITEMS=33,
+        EDGE_KIND_MIN_LENGTH=34,
+        EDGE_KIND_MAX_LENGTH=35,
+        EDGE_KIND_PATTERN=36,
+        EDGE_KIND_FORMAT=37,
+        EDGE_KIND_MINIMUM=38,
+        EDGE_KIND_MAXIMUM=39,
+        EDGE_KIND_EXCLUSIVE_MINIMUM=40,
+        EDGE_KIND_EXCLUSIVE_MAXIMUM=41,
+        EDGE_KIND_MULTIPLE_OF=42,
+        EDGE_KIND_CONST=43,
+        EDGE_KIND_TITLE=44,
+        EDGE_KIND_DESCRIPTION=45,
+        EDGE_KIND_EXAMPLES=46,
+        EDGE_KIND_READ_ONLY=47,
+        EDGE_KIND_WRITE_ONLY=48,
+        EDGE_KIND_DEPRECATED=49,
+        EDGE_KIND_CONTENT_MEDIA_TYPE=50,
+        EDGE_KIND_CONTENT_ENCODING=51,
+        EDGE_KIND_CONTENT_SCHEMA=52,
+        EDGE_KIND_SCHEMA=53,
+        EDGE_KIND_ID=54,
+        EDGE_KIND_ADDITIONAL_ITEMS=55,
+        EDGE_KIND_DEPENDENCIES=56,
+        EDGE_KIND_MIN_CONTAINS=58,
+        EDGE_KIND_MAX_CONTAINS=59,
+        EDGE_KIND_MIN_PROPERTIES=61,
+        EDGE_KIND_MAX_PROPERTIES=62,
+        
     };
 
-    enum CHOICE_KIND{
-        CHOICE_KIND_NONE=0,
-        CHOICE_KIND_ONEOF=1,
-        CHOICE_KIND_ANYOF=2,
-        CHOICE_KIND_ALLOF=3,
-        CHOICE_KIND_ENUM=4,
-        CHOICE_KIND_TYPE=5,
-        CHOICE_KIND_ITEMS=6,
-        CHOICE_KIND_DEFINITIONS=7,
+    struct source_location {
+        size_t offset = 0;
+        size_t length = 0;
+    };
+
+    struct jobject{
+        OBJECT_TYPE obj_type;
+        SCHEMA_CONTEXT context=SCHEMA_CONTEXT::SCHEMA_MODE;
+        size_t id=0;
+        size_t parent_id=0;
+        std::u8string_view key{};
+        std::u8string_view value{};
+        size_t depth=0;
+        std::u8string_view deferred_ref_path{}; // e.g., "#/definitions/graph"
+        size_t resolved_target_idx = 0;     // Left at 0 for now
+        source_location object_source_location;
     };
 
     struct RawEdge {
@@ -312,10 +354,8 @@ struct fixed_accumulator {
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
-                    size_t syntax_id=(choice_flag) ? parent_id : 0;
                     EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
+                    vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
@@ -335,13 +375,11 @@ struct fixed_accumulator {
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
-                    size_t syntax_id=(choice_flag) ? parent_id : 0;
                     EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size(), .is_choice_child=choice_flag});
+                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size()});
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                         // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                         raw_edges.push(RawEdge{parent_id, idx1});
@@ -358,14 +396,12 @@ struct fixed_accumulator {
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices.back()).key)>CHOICE_KIND_NONE;
-                    size_t syntax_id=(choice_flag) ? parent_id : 0;
                     SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                     EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size(), .is_choice_child=choice_flag});
+                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size()});
                     if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
                         // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                         raw_edges.push(RawEdge{parent_id, idx1, EDGE_KIND_AST, schemaContext});
@@ -385,20 +421,43 @@ struct fixed_accumulator {
                         current_key=u8"root";
                     }
                     // Check the key immediately to set the flag inline
-                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    size_t syntax_id=(choice_flag) ? parent_id : 0;
                     SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                     EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
+                    if(schemaContext==DATAKEY_MODE)edge_kind=EDGE_KIND_PROPERTIES;
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
+                    vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
+                        // if(schemaContext==DATAKEY_MODE && current_key==u8"type"){
+                        //     gbnfAcc.append("\n#type  ");
+                        //     gbnfAcc.append(std::get<1>(vertices[parent_id]).key);
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(current_key);
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::get<1>(vertices.back()).value);
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(parent_id));
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(idx1));
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(edge_kind));
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(schemaContext));
+                        //     gbnfAcc.append("\n");
+                        // }
                     keyStart = 0;
                     keyEnd = 0;
                    if(!firstObject && vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
                         raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
+                        // if(schemaContext==DATAKEY_MODE && current_key==u8"type"){
+                        //     gbnfAcc.append("\n\t#type  child_counts ");
+                        //     gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(parent_id));
+                        //     gbnfAcc.append("\n");
+                        // }
                     }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
@@ -413,15 +472,13 @@ struct fixed_accumulator {
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     
                     // Check the key immediately to set the flag inline
-                    bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
                     size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    size_t syntax_id=(choice_flag) ? parent_id : 0;
                     SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                     EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
                     if(hasParentalSyntax(vertices, parentStack)){
                         parent_id=parentStack[parentStack.size()-2];
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size(), .is_choice_child=choice_flag});
+                    vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
                     keyStart = 0;
                     keyEnd = 0;
                     if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || !is_schema_keyword(current_key))){
@@ -446,7 +503,6 @@ struct fixed_accumulator {
                         size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                         SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                         EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                        size_t syntax_id=parent_id;
                         std::u8string_view deferred_ref_path=u8"";
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
@@ -455,7 +511,7 @@ struct fixed_accumulator {
                             schemaContext=DATAKEY_MODE;
                             deferred_ref_path=jsonBuffer.substr(startOffset, cursor - startOffset);
                         }
-                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
                         //std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                         raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
@@ -469,11 +525,9 @@ struct fixed_accumulator {
                     else{
                         size_t idx1 = vertices.size();
                         std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
-                        bool choice_flag=(parentStack.empty())? false: getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE;
                         size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                         SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                         EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                        size_t syntax_id=(std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? parent_id : 0;
                         std::u8string_view deferred_ref_path=u8"";
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
@@ -486,30 +540,37 @@ struct fixed_accumulator {
                             schemaContext=DATAKEY_MODE;
                             deferred_ref_path=jsonBuffer.substr(startOffset, cursor - startOffset);
                         }
-                         vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .syntax_id=syntax_id, .key=current_key, .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
+                         vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
                          //std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
-                        if(!deferred_ref_path.empty() || std::get<1>(vertices[parent_id]).key==u8"graphs"){
-                            gbnfAcc.append("\n#JSON_STRING  ");
-                            gbnfAcc.append(deferred_ref_path);
-                            gbnfAcc.append(" ");
-                            gbnfAcc.append(std::get<1>(vertices[parent_id]).key);
-                            gbnfAcc.append(" ");
-                            gbnfAcc.append(current_key);
-                            gbnfAcc.append(" ");
-                            gbnfAcc.append(std::get<1>(vertices.back()).value);
-                            gbnfAcc.append(" ");
-                            gbnfAcc.append(std::to_string(parent_id));
-                            gbnfAcc.append(" ");
-                            gbnfAcc.append(std::to_string(idx1));
-                            gbnfAcc.append(" ");
-                            gbnfAcc.append(std::to_string(edge_kind));
-                            gbnfAcc.append(" ");
-                            gbnfAcc.append(std::to_string(schemaContext));
-                            gbnfAcc.append("\n");
-                        }
+                        // if(current_key==u8"type"){
+                        //     gbnfAcc.append("\n#JSON_STRING  ");
+                        //     gbnfAcc.append(deferred_ref_path);
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::get<1>(vertices[parent_id]).key);
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(current_key);
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::get<1>(vertices.back()).value);
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(parent_id));
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(idx1));
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(edge_kind));
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(schemaContext));
+                        //     gbnfAcc.append("\n");
+                        // }
                         // if(vertices.size()>1 && (schemaContext==SCHEMA_MODE)){
                             raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                             child_counts[parent_id]++;
+                        // if(current_key==u8"type"){
+                        //     gbnfAcc.append("\n\t#type  child_counts ");
+                        //     gbnfAcc.append(std::to_string(child_counts[parent_id]));
+                        //     gbnfAcc.append(" ");
+                        //     gbnfAcc.append(std::to_string(parent_id));
+                        //     gbnfAcc.append("\n");
+                        // }
                         // }
                         hitColon=false;
                         hitComma=false;
@@ -618,6 +679,7 @@ struct fixed_accumulator {
             }
             
             gbnfAcc.append(R"(
+# --- Fundamental JSON Primitive & Structural Types ---
 ws ::= [ \t\n\r]*
 string ::= "\"" [^"\\]* "\""
 number ::= [0-9]+ ("." [0-9]+)?
@@ -625,6 +687,10 @@ integer ::= [0-9]+
 boolean ::= "true" | "false"
 null ::= "null"
 
+# --- Generic JSON Schema Structural Fallbacks ---
+value  ::= object | array | string | number | boolean | null
+object ::= "{" ws ( string ws ":" ws value ( ws "," ws string ws ":" ws value )* ws )? "}"
+array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 )");
             return sylvanmats::metaphrase::fixed_string<16384>(gbnfAcc.data(), gbnfAcc.size());
         }
@@ -662,9 +728,6 @@ null ::= "null"
 
                 if(u_obj.obj_type==JSON_OBJECT && u==0 && child_counts[u]==1 && std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key==u8"type"){
                     vertex_rules[u].append("root ::= \"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
-                    vertex_rules[u].append("value  ::= object | array | string | number | \"true\" | \"false\" | \"null\"\n");
-                    vertex_rules[u].append("object ::= \"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
-                    vertex_rules[u].append("array  ::= \"[\" ws ( value ( ws \",\" ws value )* )? \"]\"\n");
                     if (!visited[u]) {
                     visited[u] = true;
                     }
@@ -701,8 +764,8 @@ null ::= "null"
                     const auto& v_obj = std::get<1>(vertices[v]);
                     if(highest_vertex_id<=v)highest_vertex_id=v+1;
 
-                    // if(v_obj.key==u8"metadata"){
-                    //     vertex_rules[u].append("#metadata ");
+                    // if(v_obj.key==u8"$ref"){
+                    //     vertex_rules[u].append("#$ref ");
                     //     vertex_rules[u].append(std::to_string(child_counts[v]));
                     //     size_t inner_edge = edge_start_idx[v] + 0;
                     //     size_t w = std::get<1>(edges[inner_edge]);
@@ -716,8 +779,12 @@ null ::= "null"
                     //     vertex_rules[u].append(" ");
                     //     vertex_rules[u].append(std::to_string(child_counts[w]));
                     //     vertex_rules[u].append(" ");
+                    //     vertex_rules[u].append(std::to_string(v_obj.parent_id));
+                    //     vertex_rules[u].append(" ");
+                    //     vertex_rules[u].append(std::to_string(v_obj.id));
+                    //     vertex_rules[u].append(" ");
                     // }
-                    std::u8string_view choiceDelimiter = (std::get<1>(vertices[v_obj.syntax_id]).key==u8"oneOf") ? u8" | " : u8" \",\" ";
+                    std::u8string_view choiceDelimiter = (std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF) ? u8" | " : u8" \",\" ";
                     if(v_obj.resolved_target_idx>0){
                         size_t r=v_obj.resolved_target_idx;
                         const auto& r_obj=std::get<1>(vertices[r]);
@@ -729,7 +796,7 @@ null ::= "null"
                         visited[v]=true;
 
                     }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS || (std::get<1>(vertices[v_obj.syntax_id]).key==u8"definitions" || std::get<1>(vertices[v_obj.syntax_id]).key==u8"$defs")){
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
                         // vertex_rules[u].append("\n# definitions syntax sugar\n");
                         visited[v]=true;
                     }
@@ -742,7 +809,7 @@ null ::= "null"
                         vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
                         visited[v]=true;
                     }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED || std::get<2>(edges[next_edge]) == EDGE_KIND_TYPE || std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS || std::get<2>(edges[next_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED || std::get<2>(edges[next_edge]) == EDGE_KIND_REF || std::get<2>(edges[next_edge]) == EDGE_KIND_TYPE || std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS || std::get<2>(edges[next_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
                         visited[v]=true;
 
                     }
@@ -773,6 +840,7 @@ null ::= "null"
                         if(highest_vertex_id<=w)highest_vertex_id=w+1;
                         std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx);
+                        std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx);
                         // if(type==u8"array"){
                         //     vertex_rules[u].append("# type=array ");
                         //     vertex_rules[u].append(u_obj.key);
@@ -805,21 +873,32 @@ null ::= "null"
                             // vertex_rules[u].append("# deferred ref path ");
                             // vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
                             // vertex_rules[u].append("\n");
-                            if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" \",\" ");
+                            if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" ws \",\" ws ");
                             vertex_rules[u].append("\"\\\"");
                             vertex_rules[u].append(v_obj.key);
                             vertex_rules[u].append("\\\"\" ws \":\" ws ");
                             vertex_rules[u].append(std::get<1>(vertices[w_obj.resolved_target_idx]).key);
+                            visited[v]=true;
                             visited[w]=true;
-                            offset_edge_idx++;
+                            // offset_edge_idx++;
                         }
                         else if(!items.empty() && type==u8"array"){
-                            vertex_rules[u].append("\"[\" ws ");
+                            vertex_rules[u].append(" \"[\" ws ");
                             vertex_rules[u].append(items);
-                            vertex_rules[u].append(" ws ( \",\" ws ");
+                            vertex_rules[u].append(" ( ws \",\" ws ");
                             vertex_rules[u].append(items);
-                            vertex_rules[u].append(" ws ");
-                            vertex_rules[u].append(")* ws \"]\" ");
+                            // vertex_rules[u].append(" ws ");
+                            vertex_rules[u].append(" ws )* \"]\"");
+                            visited[w]=true;
+                            visited[v]=true;
+                        }
+                        else if(!additionalProperties.empty() && type==u8"object"){
+                            vertex_rules[u].append(" \"{\" ws ( string ws \":\" ws ");
+                            vertex_rules[u].append(additionalProperties);
+                            vertex_rules[u].append(" ( ws \",\" ws string ws \":\" ws ");
+                            vertex_rules[u].append(additionalProperties);
+                            // vertex_rules[u].append(" ws ");
+                            vertex_rules[u].append(" )* ws )? \"}\"");
                             visited[w]=true;
                             visited[v]=true;
                         }
@@ -894,8 +973,10 @@ null ::= "null"
                             visited[w]=true;
                             visited[v]=true;
                         }
-                        else{
+                        else {
                             vertex_rules[u].append(w_obj.value);
+                        }
+                        if(!type.empty()){
                             if(required_stack.size()>0 && !required_stack.anyOf(v_obj.key)){
                                 vertex_rules[u].append(")?");
                             }
@@ -952,9 +1033,9 @@ null ::= "null"
                     // 3. Close rule on exit
                     if(child_counts[u]>0){
                         if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"object")
-                        vertex_rules[u].append(" ws \"}\"");
+                        vertex_rules[u].append(" ws \"}\" ws ");
                         else if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"array")
-                        vertex_rules[u].append(" ws \"]\"");
+                        vertex_rules[u].append(" ws \"]\" ws ");
                         vertex_rules[u].append("\n");
                     }
                     visited[u] = true;
@@ -977,17 +1058,31 @@ null ::= "null"
 
         // A simple constexpr flag helper to identify JSON Schema keywords
         constexpr bool is_schema_keyword(std::u8string_view key) {
-            return key == u8"properties" || key == u8"addionalProperties" || key == u8"oneOf"    || key == u8"anyOf"             || key == u8"allOf" || key == u8"enum" || 
-                key == u8"items"         || key == u8"required"           || key == u8"additionalProperties" ||
-                key == u8"$schema"       || key == u8"$id"                || key == u8"definitions"           || key == u8"$defs" || key == u8"$ref"  || key == u8"title" || key == u8"type" ||
-                key == u8"miniItems"         || key == u8"prefixItems";
+            return key == u8"$schema" || key == u8"$id" || key == u8"$ref" || key == u8"$anchor" ||
+                   key == u8"$dynamicAnchor" || key == u8"$dynamicRef" || key == u8"$vocabulary" ||
+                   key == u8"$comment" || key == u8"$defs" || key == u8"definitions" ||
+                   key == u8"title" || key == u8"description" || key == u8"default" ||
+                   key == u8"deprecated" || key == u8"readOnly" || key == u8"writeOnly" ||
+                   key == u8"examples" || key == u8"type" || key == u8"enum" || key == u8"const" ||
+                   key == u8"multipleOf" || key == u8"maximum" || key == u8"exclusiveMaximum" ||
+                   key == u8"minimum" || key == u8"exclusiveMinimum" ||
+                   key == u8"maxLength" || key == u8"minLength" || key == u8"pattern" || key == u8"format" ||
+                   key == u8"contentMediaType" || key == u8"contentEncoding" || key == u8"contentSchema" ||
+                   key == u8"items" || key == u8"prefixItems" || key == u8"additionalItems" ||
+                   key == u8"unevaluatedItems" || key == u8"contains" || key == u8"minContains" ||
+                   key == u8"maxContains" || key == u8"maxItems" || key == u8"minItems" ||
+                   key == u8"uniqueItems" || key == u8"properties" || key == u8"patternProperties" ||
+                   key == u8"additionalProperties" || key == u8"unevaluatedProperties" ||
+                   key == u8"required" || key == u8"propertyNames" || key == u8"minProperties" ||
+                   key == u8"maxProperties" || key == u8"dependentRequired" ||
+                   key == u8"dependentSchemas" || key == u8"dependencies" ||
+                   key == u8"allOf" || key == u8"anyOf" || key == u8"oneOf" || key == u8"not" ||
+                   key == u8"if" || key == u8"then" || key == u8"else";
         }    
 
         template<size_t VCapacity>
         constexpr bool hasParentalSyntax(const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, fixed_stack<size_t, 64>& parentStack){
-            if(parentStack.size()>=2 && (getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST_CHOICE || getChoiceSyntax(std::get<1>(vertices[parentStack.back()]).key)>CHOICE_KIND_NONE)){
-                // if(parentStack.size()>=3 && getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-2]]).key)==EDGE_KIND_PROPERTIES)
-                //     return false;
+            if(parentStack.size()>=1 && std::get<1>(vertices[parentStack.back()]).context==SCHEMA_CONTEXT::SCHEMA_MODE && getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST){
                 return true;
             }
             else return false;
@@ -995,25 +1090,65 @@ null ::= "null"
 
         constexpr EDGE_KIND getEdgeKind(std::u8string_view key) {
             if (key == u8"properties") return EDGE_KIND_PROPERTIES;
+            if (key == u8"patternProperties") return EDGE_KIND_PATTERN_PROPERTIES;
             if (key == u8"additionalProperties") return EDGE_KIND_ADDITIONAL_PROPERTIES;
+            if (key == u8"unevaluatedProperties") return EDGE_KIND_UNEVALUATED_PROPERTIES;
             if (key == u8"definitions" || key == u8"$defs") return EDGE_KIND_DEFINITIONS;
+            if (key == u8"$schema") return EDGE_KIND_SCHEMA;
+            if (key == u8"$id") return EDGE_KIND_ID;
             if (key == u8"$ref") return EDGE_KIND_REF;
+            if (key == u8"$anchor") return EDGE_KIND_ANCHOR;
+            if (key == u8"$dynamicAnchor") return EDGE_KIND_DYNAMIC_ANCHOR;
+            if (key == u8"$dynamicRef") return EDGE_KIND_DYNAMIC_REF;
+            if (key == u8"$vocabulary") return EDGE_KIND_VOCABULARY;
+            if (key == u8"$comment") return EDGE_KIND_COMMENT;
+            if (key == u8"title") return EDGE_KIND_TITLE;
+            if (key == u8"description") return EDGE_KIND_DESCRIPTION;
+            if (key == u8"default") return EDGE_KIND_DEFAULT;
+            if (key == u8"deprecated") return EDGE_KIND_DEPRECATED;
+            if (key == u8"readOnly") return EDGE_KIND_READ_ONLY;
+            if (key == u8"writeOnly") return EDGE_KIND_WRITE_ONLY;
+            if (key == u8"examples") return EDGE_KIND_EXAMPLES;
             if (key == u8"required") return EDGE_KIND_REQUIRED;
             if (key == u8"type") return EDGE_KIND_TYPE;
+            if (key == u8"enum") return EDGE_KIND_ENUM;
+            if (key == u8"const") return EDGE_KIND_CONST;
+            if (key == u8"multipleOf") return EDGE_KIND_MULTIPLE_OF;
+            if (key == u8"maximum") return EDGE_KIND_MAXIMUM;
+            if (key == u8"exclusiveMaximum") return EDGE_KIND_EXCLUSIVE_MAXIMUM;
+            if (key == u8"minimum") return EDGE_KIND_MINIMUM;
+            if (key == u8"exclusiveMinimum") return EDGE_KIND_EXCLUSIVE_MINIMUM;
+            if (key == u8"maxLength") return EDGE_KIND_MAX_LENGTH;
+            if (key == u8"minLength") return EDGE_KIND_MIN_LENGTH;
+            if (key == u8"pattern") return EDGE_KIND_PATTERN;
+            if (key == u8"format") return EDGE_KIND_FORMAT;
+            if (key == u8"contentMediaType") return EDGE_KIND_CONTENT_MEDIA_TYPE;
+            if (key == u8"contentEncoding") return EDGE_KIND_CONTENT_ENCODING;
+            if (key == u8"contentSchema") return EDGE_KIND_CONTENT_SCHEMA;
             if (key == u8"items") return EDGE_KIND_ITEMS;
             if (key == u8"prefixItems") return EDGE_KIND_PREFIX_ITEMS;
+            if (key == u8"additionalItems") return EDGE_KIND_ADDITIONAL_ITEMS;
+            if (key == u8"unevaluatedItems") return EDGE_KIND_UNEVALUATED_ITEMS;
+            if (key == u8"contains") return EDGE_KIND_CONTAINS;
+            if (key == u8"minContains") return EDGE_KIND_MIN_CONTAINS;
+            if (key == u8"maxContains") return EDGE_KIND_MAX_CONTAINS;
+            if (key == u8"maxItems") return EDGE_KIND_MAX_ITEMS;
+            if (key == u8"minItems") return EDGE_KIND_MIN_ITEMS;
+            if (key == u8"uniqueItems") return EDGE_KIND_UNIQUE_ITEMS;
+            if (key == u8"propertyNames") return EDGE_KIND_PROPERTY_NAMES;
+            if (key == u8"minProperties") return EDGE_KIND_MIN_PROPERTIES;
+            if (key == u8"maxProperties") return EDGE_KIND_MAX_PROPERTIES;
+            if (key == u8"dependentRequired") return EDGE_KIND_DEPENDENT_REQUIRED;
+            if (key == u8"dependentSchemas") return EDGE_KIND_DEPENDENT_SCHEMAS;
+            if (key == u8"dependencies") return EDGE_KIND_DEPENDENCIES;
             if (key == u8"oneOf") return EDGE_KIND_ONEOF;
             if (key == u8"anyOf") return EDGE_KIND_ANYOF;
             if (key == u8"allOf") return EDGE_KIND_ALLOF;
-            if (getChoiceSyntax(key)!=CHOICE_KIND_NONE) return EDGE_KIND_AST_CHOICE;
+            if (key == u8"not") return EDGE_KIND_NOT;
+            if (key == u8"if") return EDGE_KIND_IF;
+            if (key == u8"then") return EDGE_KIND_THEN;
+            if (key == u8"else") return EDGE_KIND_ELSE;
             return EDGE_KIND_AST;
-        }
-
-        constexpr CHOICE_KIND getChoiceSyntax(std::u8string_view key) {
-            if (key == u8"oneOf") return CHOICE_KIND_ONEOF;
-            if (key == u8"anyOf") return CHOICE_KIND_ANYOF;
-            if (key == u8"allOf") return CHOICE_KIND_ALLOF;
-            return CHOICE_KIND_NONE;
         }
 
         constexpr std::u8string_view getPrimitiveName(OBJECT_TYPE type) {
@@ -1034,13 +1169,13 @@ null ::= "null"
             const std::array<size_t, VCapacity>& edge_start_idx)
         {
             std::u8string_view type = u8"";
-            // if(std::get<1>(vertices[u]).key==u8"type")type=std::get<1>(vertices[u]).value;
+            std::u8string_view defaultValue = u8"";
             size_t current_edge_idx = 0;
             while(current_edge_idx<child_counts[u]){
                 size_t inner_edge = edge_start_idx[u] + current_edge_idx;
                 size_t w = std::get<1>(edges[inner_edge]);
                 const auto& w_obj = std::get<1>(vertices[w]);
-                if(w_obj.key == u8"type" || std::get<2>(edges[inner_edge])==EDGE_KIND_TYPE){
+                if(type.empty() && (w_obj.key == u8"type" || std::get<2>(edges[inner_edge])==EDGE_KIND_TYPE)){
                     type=w_obj.value;
                     if(w_obj.obj_type==JSON_ARRAY){
                         size_t inner_w_edge = edge_start_idx[w];
@@ -1048,11 +1183,18 @@ null ::= "null"
                         const auto& x_obj = std::get<1>(vertices[x]);
                         type=x_obj.value;
                     }
-                    break;
+                }
+                else if(w_obj.key == u8"default" || std::get<2>(edges[inner_edge])==EDGE_KIND_DEFAULT){
+                    defaultValue=w_obj.value;
                 }
                 current_edge_idx++;
             }
-            return type;
+            if(defaultValue.empty()){
+                return type;
+            }
+            else{
+                return defaultValue;
+            }
         };
 
         template<size_t VCapacity, size_t ECapacity>
@@ -1073,12 +1215,36 @@ null ::= "null"
                     }
                     else
                         items=v_obj.value;
-                    if(items.empty())items=u8"emptyitem";
                     break;
                 }
                 current_edge_idx++;
             }
             return items;
+        };
+
+        template<size_t VCapacity, size_t ECapacity>
+        constexpr std::u8string_view findAdditionalProperties(const size_t u, std::array<size_t, VCapacity>& child_counts,
+            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const std::array<size_t, VCapacity>& edge_start_idx)
+        {
+            std::u8string_view additionalProperties = u8"";
+            size_t current_edge_idx = 0;
+            while(current_edge_idx<child_counts[u]){
+                size_t inner_edge = edge_start_idx[u] + current_edge_idx;
+                size_t v = std::get<1>(edges[inner_edge]);
+                const auto& v_obj = std::get<1>(vertices[v]);
+                if(std::get<2>(edges[inner_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
+                    if(v_obj.resolved_target_idx>0){
+                        additionalProperties=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
+                    }
+                    else
+                        additionalProperties=v_obj.value;
+                    break;
+                }
+                current_edge_idx++;
+            }
+            return additionalProperties;
         };
 
         template<size_t VCapacity, size_t ECapacity>
