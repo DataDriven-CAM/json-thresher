@@ -466,7 +466,6 @@ TEST_CASE("test jgf 2.0 binding"){
     },
     "edges": [
       {
-        "id": "edge_1",
         "source": "node_alice",
         "target": "node_bob",
         "relation": "knows",

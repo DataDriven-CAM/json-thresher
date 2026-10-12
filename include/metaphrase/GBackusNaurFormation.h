@@ -293,6 +293,12 @@ struct fixed_accumulator {
         
     };
 
+    struct property_sort_entry {
+        size_t edge_idx = 0;
+        size_t v_node   = 0;
+        bool is_required = false;
+    };
+
     struct source_location {
         size_t offset = 0;
         size_t length = 0;
@@ -534,6 +540,8 @@ struct fixed_accumulator {
                     else{
                         size_t idx1 = vertices.size();
                         std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
+                        if(is_schema_keyword(current_key) && !is_keyword_implemented(current_key)) {
+                        }
                         size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                         SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                         EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
@@ -725,6 +733,8 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 }
                 
                 if(is_schema_keyword(u_obj.key) && child_counts[u]==0){
+                    if (!visited[u] && !is_keyword_implemented(u_obj.key)) {
+                    }
                     if (!visited[u]) {
                     visited[u] = true;
                     }
@@ -746,130 +756,122 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     else if (u_obj.obj_type == JSON_OBJECT && rootType==u8"array") vertex_rules[u].append("\"[\" ws ");
                 }
 
-                // 2. Linear traversal over mapped edges
-                if (state.current_edge_idx < child_counts[u]) {
-                    size_t next_edge = edge_start_idx[u] + state.current_edge_idx;
-                    size_t v = std::get<1>(edges[next_edge]);
-                    const auto& v_obj = std::get<1>(vertices[v]);
-                    if(highest_vertex_id<=v)highest_vertex_id=v+1;
+                fixed_stack<std::u8string_view, 128> required_stack;
+                findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
+                std::array<property_sort_entry, 64> prop_pipeline{};
+                size_t actual_prop_count = 0;
 
-                    // if(v_obj.key==u8"$ref"){
-                    //     vertex_rules[u].append("#$ref ");
-                    //     vertex_rules[u].append(std::to_string(child_counts[v]));
-                    //     size_t inner_edge = edge_start_idx[v] + 0;
-                    //     size_t w = std::get<1>(edges[inner_edge]);
-                    //     const auto& w_obj = std::get<1>(vertices[w]);
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(std::get<2>(edges[inner_edge])));
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(w_obj.key);
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(v_obj.resolved_target_idx));
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(child_counts[w]));
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(v_obj.parent_id));
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(v_obj.id));
-                    //     vertex_rules[u].append(" ");
-                    // }
-                    std::u8string_view choiceDelimiter = (std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF) ? u8" | " : u8" \",\" ";
+                for (size_t i = 0; i < child_counts[u]; ++i) {
+                    size_t next_edge = edge_start_idx[u] + i;
+                    
+                    if (std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES &&!visited[std::get<1>(edges[next_edge])]) {
+                        size_t v = std::get<1>(edges[next_edge]);
+                        if(!visited[v]){
+                        bool required = required_stack.anyOf(std::get<1>(vertices[v]).key);
+                        
+                        prop_pipeline[actual_prop_count++] = property_sort_entry{
+                            .edge_idx = next_edge,
+                            .v_node = v,
+                            .is_required = required
+                        };
+                    }
+                    }
+                }
+                std::stable_partition(prop_pipeline.begin(), prop_pipeline.begin() + actual_prop_count,
+                    [](const property_sort_entry& entry) {
+                        return entry.is_required; // Required elements move to the front
+                    });
+
+                bool is_first_field = true;
+
+                for (size_t i = 0; i < actual_prop_count; ++i) {
+                    const auto& entry = prop_pipeline[i];
+                    auto v = entry.v_node;
+                    const auto& v_obj = std::get<1>(vertices[entry.v_node]);
+
+                        // if (entry.is_required) {
+                        //     if (is_first_field) {
+                        //         vertex_rules[u].append("\"" + convert_to_string_view(key_name) + "\" ws \":\" ws " + get_rule_name(entry.v_node));
+                        //         is_first_field = false;
+                        //     } else {
+                        //         vertex_rules[u].append(" ws \",\" ws \"" + convert_to_string_view(key_name) + "\" ws \":\" ws " + get_rule_name(entry.v_node));
+                        //     }
+                        // } else {
+                        //     // Optional property layout configuration
+                        //     if (is_first_field) {
+                        //         vertex_rules[u].append("( \"" + convert_to_string_view(key_name) + "\" ws \":\" ws " + get_rule_name(entry.v_node) + " )?");
+                        //         is_first_field = false;
+                        //     } else {
+                        //         vertex_rules[u].append("( ws \",\" ws \"" + convert_to_string_view(key_name) + "\" ws \":\" ws " + get_rule_name(entry.v_node) + " )?");
+                        //     }
+                        // }
                     if(v_obj.resolved_target_idx>0){
                         size_t r=v_obj.resolved_target_idx;
                         const auto& r_obj=std::get<1>(vertices[r]);
+                        if(!entry.is_required)vertex_rules[u].append(" ( ");
                         vertex_rules[u].append("\"\\\"");
                         vertex_rules[u].append(v_obj.key);
                         vertex_rules[u].append("\\\"\" ws \":\" ws ");
                         vertex_rules[u].append(r_obj.key);
+                        if(!entry.is_required)vertex_rules[u].append(" )? ");
                         vertex_rules[u].append(" ws ");
                         visited[v]=true;
 
                     }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
-                        // vertex_rules[u].append("\n# definitions syntax sugar\n");
-                        visited[v]=true;
-                    }
-                    else if(v_obj.resolved_target_idx>0){
-                        // vertex_rules[u].append("\n# reference syntax sugar\n");
-                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(choiceDelimiter);
-                        vertex_rules[u].append("\"\\\"");
-                        vertex_rules[u].append(v_obj.key);
-                        vertex_rules[u].append("\\\"\" ws \":\" ws ");
-                        vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
-                        visited[v]=true;
-                    }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED || std::get<2>(edges[next_edge]) == EDGE_KIND_REF || std::get<2>(edges[next_edge]) == EDGE_KIND_TYPE || std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS || std::get<2>(edges[next_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
-                        visited[v]=true;
-
-                    }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF){
-                        if(state.current_edge_idx > 0) vertex_rules[u].append(" | ");
-                        // vertex_rules[u].append("\n# oneOf impl here\n");
-                        
-                        vertex_rules[u].append(v_obj.key);
-                        // vertex_rules[v].append(v_obj.key);
-                        if(v_obj.key.empty()){
-                            vertex_rules[u].append("-branch-");
-                            emit_size_t_as_string(vertex_rules[u], v);
-                            vertex_rules[u].append("-rule ");
-                            // vertex_rules[v].append("-branch-");
-                            // emit_size_t_as_string(vertex_rules[v], v);
-                            // vertex_rules[v].append("-rule ::= ");
-                        }
-                        
-                        //visited[v]=true;
-
-                    }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
-                        fixed_stack<std::u8string_view, 128> required_stack;
-                        findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
+                    else if(std::get<2>(edges[entry.edge_idx]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
+                        // fixed_stack<std::u8string_view, 128> required_stack;
+                        // findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
                         size_t inner_edge = edge_start_idx[v] + 0;
                         size_t w = std::get<1>(edges[inner_edge]);
                         const auto& w_obj = std::get<1>(vertices[w]);
                         if(highest_vertex_id<=w)highest_vertex_id=w+1;
                         std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
+                        std::u8string_view constant = findConst(v, child_counts, vertices, edges, edge_start_idx);
+                        std::u8string_view defaultValue = findDefault(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx);
-                        // if(type==u8"array"){
-                        //     vertex_rules[u].append("# type=array ");
-                        //     vertex_rules[u].append(u_obj.key);
-                        //     vertex_rules[u].append(" ");
-                        //     vertex_rules[u].append(v_obj.key);
-                        //     vertex_rules[u].append("=");
-                        //     vertex_rules[u].append(v_obj.value);
-                        //     vertex_rules[u].append(" ");
-                        //     vertex_rules[u].append(std::to_string(child_counts[v]));
-                        //     vertex_rules[u].append(" ");
-                        //     vertex_rules[u].append(items);
-                        //     vertex_rules[u].append("\n");
-
-                        // }
                         fixed_stack<std::u8string_view, 128> enumerated_array;
                         findEnumerationArray(v, child_counts, vertices, edges, edge_start_idx, enumerated_array);
                         fixed_stack<std::u8string_view, 128> prefix_items_array;
                         findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
+                        if(!entry.is_required)vertex_rules[u].append(" ( ");
                         if(!type.empty()){
-                            if(required_stack.size()>0 && !required_stack.anyOf(v_obj.key)){
-                                vertex_rules[u].append(" (");
-                            }
-                          if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" ws \",\" ws ");
+                          if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
                           vertex_rules[u].append("\"\\\"");
                           vertex_rules[u].append(v_obj.key);
                           vertex_rules[u].append("\\\"\" ws \":\" ws ");
-
+                          is_first_field = false;
                         }
                         if(w_obj.resolved_target_idx>0){
                             // vertex_rules[u].append("# deferred ref path ");
                             // vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
                             // vertex_rules[u].append("\n");
-                            if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(" ws \",\" ws ");
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
                             vertex_rules[u].append("\"\\\"");
                             vertex_rules[u].append(v_obj.key);
                             vertex_rules[u].append("\\\"\" ws \":\" ws ");
                             vertex_rules[u].append(std::get<1>(vertices[w_obj.resolved_target_idx]).key);
                             visited[v]=true;
                             visited[w]=true;
-                            // offset_edge_idx++;
+                            is_first_field = false;
+                        }
+                        else if(!constant.empty() && !type.empty()){
+                            // if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append("\"\\\"");
+                            vertex_rules[u].append(constant);
+                            vertex_rules[u].append("\\\"\"");
+                            // visited[w]=true;
+                            visited[v]=true;
+                            is_first_field = false;
+                        }
+                        else if(!defaultValue.empty() && !type.empty()){
+                            // if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            (type==u8"string") ? vertex_rules[u].append("\"\\\"") : vertex_rules[u].append("\"");
+                            vertex_rules[u].append(defaultValue);
+                            (type==u8"string") ? vertex_rules[u].append("\\\"\"") : vertex_rules[u].append("\"");
+                            // visited[w]=true;
+                            visited[v]=true;
+                            is_first_field = false;
                         }
                         else if(!items.empty() && type==u8"array"){
                             vertex_rules[u].append(" \"[\" ws ");
@@ -965,14 +967,103 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         else {
                             vertex_rules[u].append(w_obj.value);
                         }
+                        if(!entry.is_required)vertex_rules[u].append(")?");
                         if(!type.empty()){
-                            if(required_stack.size()>0 && !required_stack.anyOf(v_obj.key)){
-                                vertex_rules[u].append(")?");
-                            }
                             visited[w]=true;
                             visited[v]=true;
                         }
                         required_stack.clear();
+                    }
+                }
+
+                // 2. Linear traversal over mapped edges
+                if (state.current_edge_idx < child_counts[u]) {
+                    size_t next_edge = edge_start_idx[u] + state.current_edge_idx;
+                    size_t v = std::get<1>(edges[next_edge]);
+                    const auto& v_obj = std::get<1>(vertices[v]);
+                    if(highest_vertex_id<=v)highest_vertex_id=v+1;
+
+                    // if(v_obj.key==u8"$ref"){
+                    //     vertex_rules[u].append("#$ref ");
+                    //     vertex_rules[u].append(std::to_string(child_counts[v]));
+                    //     size_t inner_edge = edge_start_idx[v] + 0;
+                    //     size_t w = std::get<1>(edges[inner_edge]);
+                    //     const auto& w_obj = std::get<1>(vertices[w]);
+                    //     vertex_rules[u].append(" ");
+                    //     vertex_rules[u].append(std::to_string(std::get<2>(edges[inner_edge])));
+                    //     vertex_rules[u].append(" ");
+                    //     vertex_rules[u].append(w_obj.key);
+                    //     vertex_rules[u].append(" ");
+                    //     vertex_rules[u].append(std::to_string(v_obj.resolved_target_idx));
+                    //     vertex_rules[u].append(" ");
+                    //     vertex_rules[u].append(std::to_string(child_counts[w]));
+                    //     vertex_rules[u].append(" ");
+                    //     vertex_rules[u].append(std::to_string(v_obj.parent_id));
+                    //     vertex_rules[u].append(" ");
+                    //     vertex_rules[u].append(std::to_string(v_obj.id));
+                    //     vertex_rules[u].append(" ");
+                    // }
+                    std::u8string_view choiceDelimiter = (std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF) ? u8" | " : u8" \",\" ";
+                    if(visited[v]){
+
+                    }
+                    else if(v_obj.resolved_target_idx>0){
+                        size_t r=v_obj.resolved_target_idx;
+                        const auto& r_obj=std::get<1>(vertices[r]);
+                        vertex_rules[u].append("\"\\\"");
+                        vertex_rules[u].append(v_obj.key);
+                        vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                        vertex_rules[u].append(r_obj.key);
+                        vertex_rules[u].append(" ws ");
+                        visited[v]=true;
+
+                    }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
+                        // vertex_rules[u].append("\n# definitions syntax sugar\n");
+                        visited[v]=true;
+                    }
+                    else if(v_obj.resolved_target_idx>0){
+                        // vertex_rules[u].append("\n# reference syntax sugar\n");
+                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(choiceDelimiter);
+                        vertex_rules[u].append("\"\\\"");
+                        vertex_rules[u].append(v_obj.key);
+                        vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                        vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
+                        visited[v]=true;
+                    }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED || std::get<2>(edges[next_edge]) == EDGE_KIND_REF || std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS || std::get<2>(edges[next_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
+                        visited[v]=true;
+
+                    }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_CONST){
+                        vertex_rules[u].append("\"\\\"");
+                        vertex_rules[u].append(v_obj.value);
+                        vertex_rules[u].append("\\\"\"");
+                        visited[v]=true;
+                    }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_TYPE){
+                        vertex_rules[u].append(v_obj.value);
+                        visited[v]=true;
+                    }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF){
+                        if(state.current_edge_idx > 0) vertex_rules[u].append(" | ");
+                        // vertex_rules[u].append("\n# oneOf impl here\n");
+                        
+                        vertex_rules[u].append(v_obj.key);
+                        // vertex_rules[v].append(v_obj.key);
+                        if(v_obj.key.empty()){
+                            vertex_rules[u].append("-branch-");
+                            emit_size_t_as_string(vertex_rules[u], v);
+                            vertex_rules[u].append("-rule ");
+                            // vertex_rules[v].append("-branch-");
+                            // emit_size_t_as_string(vertex_rules[v], v);
+                            // vertex_rules[v].append("-rule ::= ");
+                        }
+                        
+                        //visited[v]=true;
+
+                    }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
                     }
                     else if(u_obj.obj_type==JSON_OBJECT && v_obj.key==u8"type"){
                         offset_edge_idx++;
@@ -1069,6 +1160,70 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                    key == u8"if" || key == u8"then" || key == u8"else";
         }    
 
+        constexpr bool is_keyword_implemented(std::u8string_view key) {
+            if(key == u8"$schema") return true;
+            if(key == u8"$id") return true;
+            if(key == u8"$ref") return true;
+            if(key == u8"$anchor") throw "JSON Schema keyword not implemented: $anchor";
+            if(key == u8"$dynamicAnchor") throw "JSON Schema keyword not implemented: $dynamicAnchor";
+            if(key == u8"$dynamicRef") throw "JSON Schema keyword not implemented: $dynamicRef";
+            if(key == u8"$vocabulary") throw "JSON Schema keyword not implemented: $vocabulary";
+            if(key == u8"$comment") throw "JSON Schema keyword not implemented: $comment";
+            if(key == u8"$defs") return true;
+            if(key == u8"definitions") return true;
+            if(key == u8"title") return true;
+            if(key == u8"description") throw "JSON Schema keyword not implemented: description";
+            if(key == u8"default") throw "JSON Schema keyword not implemented: default";
+            if(key == u8"deprecated") throw "JSON Schema keyword not implemented: deprecated";
+            if(key == u8"readOnly") throw "JSON Schema keyword not implemented: readOnly";
+            if(key == u8"writeOnly") throw "JSON Schema keyword not implemented: writeOnly";
+            if(key == u8"examples") throw "JSON Schema keyword not implemented: examples";
+            if(key == u8"type") return true;
+            if(key == u8"enum") throw "JSON Schema keyword not implemented: enum";
+            if(key == u8"const") return true;
+            if(key == u8"multipleOf") throw "JSON Schema keyword not implemented: multipleOf";
+            if(key == u8"maximum") throw "JSON Schema keyword not implemented: maximum";
+            if(key == u8"exclusiveMaximum") throw "JSON Schema keyword not implemented: exclusiveMaximum";
+            if(key == u8"minimum") throw "JSON Schema keyword not implemented: minimum";
+            if(key == u8"exclusiveMinimum") throw "JSON Schema keyword not implemented: exclusiveMinimum";
+            if(key == u8"maxLength") throw "JSON Schema keyword not implemented: maxLength";
+            if(key == u8"minLength") throw "JSON Schema keyword not implemented: minLength";
+            if(key == u8"pattern") throw "JSON Schema keyword not implemented: pattern";
+            if(key == u8"format") throw "JSON Schema keyword not implemented: format";
+            if(key == u8"contentMediaType") throw "JSON Schema keyword not implemented: contentMediaType";
+            if(key == u8"contentEncoding") throw "JSON Schema keyword not implemented: contentEncoding";
+            if(key == u8"contentSchema") throw "JSON Schema keyword not implemented: contentSchema";
+            if(key == u8"items") return true;
+            if(key == u8"prefixItems") return true;
+            if(key == u8"additionalItems") throw "JSON Schema keyword not implemented: additionalItems";
+            if(key == u8"unevaluatedItems") throw "JSON Schema keyword not implemented: unevaluatedItems";
+            if(key == u8"contains") throw "JSON Schema keyword not implemented: contains";
+            if(key == u8"minContains") throw "JSON Schema keyword not implemented: minContains";
+            if(key == u8"maxContains") throw "JSON Schema keyword not implemented: maxContains";
+            if(key == u8"maxItems") throw "JSON Schema keyword not implemented: maxItems";
+            if(key == u8"minItems") throw "JSON Schema keyword not implemented: minItems";
+            if(key == u8"uniqueItems") throw "JSON Schema keyword not implemented: uniqueItems";
+            if(key == u8"properties") return true;
+            if(key == u8"patternProperties") throw "JSON Schema keyword not implemented: patternProperties";
+            if(key == u8"additionalProperties") return true;
+            if(key == u8"unevaluatedProperties") throw "JSON Schema keyword not implemented: unevaluatedProperties";
+            if(key == u8"required") return true;
+            if(key == u8"propertyNames") throw "JSON Schema keyword not implemented: propertyNames";
+            if(key == u8"minProperties") throw "JSON Schema keyword not implemented: minProperties";
+            if(key == u8"maxProperties") throw "JSON Schema keyword not implemented: maxProperties";
+            if(key == u8"dependentRequired") throw "JSON Schema keyword not implemented: dependentRequired";
+            if(key == u8"dependentSchemas") throw "JSON Schema keyword not implemented: dependentSchemas";
+            if(key == u8"dependencies") throw "JSON Schema keyword not implemented: dependencies";
+            if(key == u8"allOf") throw "JSON Schema keyword not implemented: allOf";
+            if(key == u8"anyOf") throw "JSON Schema keyword not implemented: anyOf";
+            if(key == u8"oneOf") return true;
+            if(key == u8"not") throw "JSON Schema keyword not implemented: not";
+            if(key == u8"if") throw "JSON Schema keyword not implemented: if";
+            if(key == u8"then") throw "JSON Schema keyword not implemented: then";
+            if(key == u8"else") throw "JSON Schema keyword not implemented: else";
+            return false;
+        }    
+
         template<size_t VCapacity>
         constexpr bool hasParentalSyntax(const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, fixed_stack<size_t, 64>& parentStack){
             if(parentStack.size()>=1 && std::get<1>(vertices[parentStack.back()]).context==SCHEMA_CONTEXT::SCHEMA_MODE && getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST){
@@ -1158,7 +1313,6 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             const std::array<size_t, VCapacity>& edge_start_idx)
         {
             std::u8string_view type = u8"";
-            std::u8string_view defaultValue = u8"";
             size_t current_edge_idx = 0;
             while(current_edge_idx<child_counts[u]){
                 size_t inner_edge = edge_start_idx[u] + current_edge_idx;
@@ -1173,17 +1327,61 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         type=x_obj.value;
                     }
                 }
-                else if(w_obj.key == u8"default" || std::get<2>(edges[inner_edge])==EDGE_KIND_DEFAULT){
-                    defaultValue=w_obj.value;
+                current_edge_idx++;
+            }
+            return type;
+        };
+
+        template<size_t VCapacity, size_t ECapacity>
+        constexpr std::u8string_view findConst(const size_t u, std::array<size_t, VCapacity>& child_counts,
+            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const std::array<size_t, VCapacity>& edge_start_idx)
+        {
+            std::u8string_view constant = u8"";
+            size_t current_edge_idx = 0;
+            while(current_edge_idx<child_counts[u]){
+                size_t inner_edge = edge_start_idx[u] + current_edge_idx;
+                size_t w = std::get<1>(edges[inner_edge]);
+                const auto& w_obj = std::get<1>(vertices[w]);
+                if(constant.empty() && (w_obj.key == u8"const" || std::get<2>(edges[inner_edge])==EDGE_KIND_CONST)){
+                    constant=w_obj.value;
+                    if(w_obj.obj_type==JSON_ARRAY){
+                        size_t inner_w_edge = edge_start_idx[w];
+                        size_t x = std::get<1>(edges[inner_w_edge]);
+                        const auto& x_obj = std::get<1>(vertices[x]);
+                        constant=x_obj.value;
+                    }
                 }
                 current_edge_idx++;
             }
-            if(defaultValue.empty()){
-                return type;
+            return constant;
+        };
+
+        template<size_t VCapacity, size_t ECapacity>
+        constexpr std::u8string_view findDefault(const size_t u, std::array<size_t, VCapacity>& child_counts,
+            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const std::array<size_t, VCapacity>& edge_start_idx)
+        {
+            std::u8string_view defaultValue = u8"";
+            size_t current_edge_idx = 0;
+            while(current_edge_idx<child_counts[u]){
+                size_t inner_edge = edge_start_idx[u] + current_edge_idx;
+                size_t w = std::get<1>(edges[inner_edge]);
+                const auto& w_obj = std::get<1>(vertices[w]);
+                if(defaultValue.empty() && (w_obj.key == u8"default" || std::get<2>(edges[inner_edge])==EDGE_KIND_DEFAULT)){
+                    defaultValue=w_obj.value;
+                    if(w_obj.obj_type==JSON_ARRAY){
+                        size_t inner_w_edge = edge_start_idx[w];
+                        size_t x = std::get<1>(edges[inner_w_edge]);
+                        const auto& x_obj = std::get<1>(vertices[x]);
+                        defaultValue=x_obj.value;
+                    }
+                }
+                current_edge_idx++;
             }
-            else{
-                return defaultValue;
-            }
+            return defaultValue;
         };
 
         template<size_t VCapacity, size_t ECapacity>
