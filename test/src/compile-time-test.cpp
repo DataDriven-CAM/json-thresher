@@ -120,7 +120,7 @@ TEST_CASE("test generic primitives"){
   "type": "object"
 })";
 
-    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
@@ -151,7 +151,7 @@ TEST_CASE("test simple primitives"){
   }
 })";
 
-    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
@@ -186,7 +186,7 @@ TEST_CASE("test homogeneous vector"){
   "additionalProperties": false
 })";
 
-    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation;
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
@@ -225,7 +225,7 @@ TEST_CASE("test enumerated colors"){
   "additionalProperties": false
 })";
 
-    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation;
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
@@ -262,7 +262,7 @@ TEST_CASE("test fixed array / tuple"){
   "additionalProperties": false
 })";
 
-    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout<<"prefixItems " << gbnfView<<std::endl;
@@ -294,7 +294,7 @@ TEST_CASE("test optional fields"){
   "additionalProperties": false
 })";
 
-    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
@@ -342,7 +342,7 @@ TEST_CASE("test nested structural dependency"){
   }
 })";
 
-    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
@@ -407,7 +407,7 @@ TEST_CASE("test polymorphism"){
   }
 })";
 
-    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
     static constexpr auto gbnf=gBackusNaurFormation(sample_schema);
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;
@@ -435,7 +435,7 @@ TEST_CASE("test jgf 2.0 binding"){
     constexpr char8_t jsonBuffer[] ={
 #embed "json-graph-schema_v2.json"
     };
-    sylvanmats::metaphrase::GBackusNaurFormation gBackusNaurFormation;
+    sylvanmats::metaphrase::GBackusNaurFormation<sizeof(jsonBuffer)> gBackusNaurFormation{};
     static constexpr auto gbnf=gBackusNaurFormation(std::u8string_view(jsonBuffer, sizeof(jsonBuffer)));
     constexpr std::string_view gbnfView=gbnf.view();
     std::cout << gbnfView<<std::endl;

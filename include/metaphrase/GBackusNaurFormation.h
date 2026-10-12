@@ -23,6 +23,13 @@
 
 namespace sylvanmats::metaphrase{
 
+    struct constexpr_error_trap {
+        explicit constexpr_error_trap(const char* message) {
+            // Leaving this empty or throwing inside a non-constexpr context 
+            // triggers a hard compiler error screen detailing the active callstack.
+        }
+    };
+
     // Structural fixed_string template matching our performance pipeline
     template<size_t N>
     struct fixed_string {
@@ -319,7 +326,11 @@ struct fixed_accumulator {
         size_t current_edge_idx; // Tracks which outgoing edge we are processing
     };
 
+    template <size_t BufferSize>
     class GBackusNaurFormation{
+        private:
+        static constexpr size_t MaxNodes = std::max(size_t{128}, BufferSize / 16);
+        static constexpr size_t AccumulatorSize = std::max(size_t{16384}, BufferSize * 4);
         public:
         GBackusNaurFormation() = default;
         GBackusNaurFormation(const GBackusNaurFormation& orig) = delete;
@@ -327,13 +338,13 @@ struct fixed_accumulator {
         GBackusNaurFormation& operator=(const GBackusNaurFormation& orig) = delete;
         GBackusNaurFormation& operator=(GBackusNaurFormation&& orig) = delete;
         ~GBackusNaurFormation() = default;
-        constexpr fixed_string<16384> operator ()(std::u8string_view jsonBuffer){
-            fixed_stack<std::tuple<size_t, jobject>, 8192> vertices;
-            fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, 8191> edges;
+        constexpr fixed_string<AccumulatorSize> operator ()(std::u8string_view jsonBuffer){
+            fixed_stack<std::tuple<size_t, jobject>, MaxNodes> vertices;
+            fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, MaxNodes*2> edges;
             fixed_stack<size_t, 64> parentStack;
-            fixed_stack<RawEdge, 8191> raw_edges;
+            fixed_stack<RawEdge, MaxNodes*2> raw_edges;
 
-            std::array<size_t, 8192> child_counts{};
+            std::array<size_t, MaxNodes> child_counts{};
             child_counts.fill(0);
 
             size_t cursor = 0;
@@ -342,7 +353,7 @@ struct fixed_accumulator {
             bool hitColon=false;
             bool hitComma=false;
             bool firstObject=true;
-            fixed_accumulator<65536> gbnfAcc{};
+            fixed_accumulator<AccumulatorSize> gbnfAcc{};
             while(cursor<jsonBuffer.size()){
                 while (cursor < jsonBuffer.size() && 
                     (jsonBuffer[cursor] == ' ' || jsonBuffer[cursor] == '\t' || 
@@ -541,26 +552,6 @@ struct fixed_accumulator {
                             deferred_ref_path=jsonBuffer.substr(startOffset, cursor - startOffset);
                         }
                          vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
-                         //std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
-                        // if(current_key==u8"type"){
-                        //     gbnfAcc.append("\n#JSON_STRING  ");
-                        //     gbnfAcc.append(deferred_ref_path);
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::get<1>(vertices[parent_id]).key);
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(current_key);
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::get<1>(vertices.back()).value);
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(parent_id));
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(idx1));
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(edge_kind));
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(schemaContext));
-                        //     gbnfAcc.append("\n");
-                        // }
                         // if(vertices.size()>1 && (schemaContext==SCHEMA_MODE)){
                             raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                             child_counts[parent_id]++;
@@ -634,7 +625,7 @@ struct fixed_accumulator {
             // gbnfAcc.append("# Deferred sum ");
             // gbnfAcc.append(std::format("{}", deferred_sum));
             // gbnfAcc.append("\n\n");
-            std::array<size_t, 8192> edge_offsets{};
+            std::array<size_t, MaxNodes> edge_offsets{};
             size_t running_sum = 0;
 
             for (size_t i = 0; i < vertices.size(); ++i) {
@@ -657,14 +648,14 @@ struct fixed_accumulator {
                 edges[target_slot] = std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>{src, dest, raw_edges[i].edge_kind, raw_edges[i].context};
             }
             // 1. Storage bounds matching your structural limits
-            std::array<size_t, 8192> edge_start_idx{};
+            std::array<size_t, MaxNodes> edge_start_idx{};
             size_t sum = 0;
             for (size_t i = 0; i < vertices.size(); ++i) {
                 edge_start_idx[i] = sum;
                 sum += child_counts[i];
             }
 
-            std::array<fixed_accumulator<512>, 8192> vertex_rules{};
+            std::array<fixed_accumulator<512>, MaxNodes> vertex_rules{};
             traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, vertex_rules);
             // fixed_accumulator<65536> gbnfAcc{};
             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
@@ -692,7 +683,7 @@ value  ::= object | array | string | number | boolean | null
 object ::= "{" ws ( string ws ":" ws value ( ws "," ws string ws ":" ws value )* ws )? "}"
 array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 )");
-            return sylvanmats::metaphrase::fixed_string<16384>(gbnfAcc.data(), gbnfAcc.size());
+            return sylvanmats::metaphrase::fixed_string<AccumulatorSize>(gbnfAcc.data(), gbnfAcc.size());
         }
 
     private:
@@ -702,7 +693,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
             std::array<size_t, VCapacity>& child_counts,
-            std::array<fixed_accumulator<512>, 8192>& vertex_rules
+            std::array<fixed_accumulator<512>, MaxNodes>& vertex_rules
         ) {
             if (vertices.size() <= 1) return;
             // 1. Explicit visitor stack replacing runtime/compiler call recursion
@@ -716,7 +707,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             traversal_stack.push(DFSState{0, 0});
             visited[0] = true;
 
-            std::array<size_t, 8192> printed_fields{};
+            std::array<size_t, MaxNodes> printed_fields{};
             printed_fields.fill(0);
             
             size_t offset_edge_idx=0;
