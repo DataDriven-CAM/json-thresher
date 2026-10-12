@@ -653,7 +653,7 @@ struct fixed_accumulator {
                 sum += child_counts[i];
             }
 
-            std::array<fixed_accumulator<512>, MaxNodes> vertex_rules{};
+            std::array<fixed_accumulator<4096>, MaxNodes> vertex_rules{};
             traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, vertex_rules);
             // fixed_accumulator<65536> gbnfAcc{};
             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
@@ -691,7 +691,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
             std::array<size_t, VCapacity>& child_counts,
-            std::array<fixed_accumulator<512>, MaxNodes>& vertex_rules
+            std::array<fixed_accumulator<4096>, MaxNodes>& vertex_rules
         ) {
             if (vertices.size() <= 1) return;
             // 1. Explicit visitor stack replacing runtime/compiler call recursion
