@@ -128,71 +128,69 @@ struct fixed_accumulator {
 
     constexpr void append(std::string_view sv) {
         // Enforce boundary space for the incoming data and the null terminator
-        if (current_length + sv.length() + 1 <= MaxCapacity) {
-            std::copy_n(sv.data(), sv.length(), data_buffer + current_length);
-            current_length += sv.length();
-            data_buffer[current_length] = '\0';
-        } else {
-            // Triggers a hard compilation error if hit during constexpr evaluation
-            throw std::out_of_range("fixed_accumulator overflow on append");
+        if (current_length + sv.size() >= MaxCapacity) [[unlikely]] {
+            // This will force the compiler to print the exact rule and buffer bounds 
+            // that caused your overflow during evaluation.
+            constexpr_error_trap("CRITICAL: fixed_accumulator capacity blown during GBNF rule emission!");
         }
+        std::copy_n(sv.data(), sv.length(), data_buffer + current_length);
+        current_length += sv.length();
+        data_buffer[current_length] = '\0';
     }
 
     constexpr void append(std::u8string_view u8sv) {
-        if (current_length + u8sv.length() + 1 <= MaxCapacity) {
-            for (size_t i = 0; i < u8sv.length(); ++i) {
-                // static_cast from char8_t to char is fully permitted in constexpr
-                data_buffer[current_length + i] = static_cast<char>(u8sv[i]);
-            }
-            current_length += u8sv.length();
-            data_buffer[current_length] = '\0';
-        } else {
-            throw std::out_of_range(std::format("fixed_accumulator overflow on u8 append {} {}", u8sv.length(), MaxCapacity));
+        if (current_length + u8sv.size() >= MaxCapacity) [[unlikely]] {
+            constexpr_error_trap("CRITICAL: fixed_accumulator capacity blown during GBNF rule emission!");
         }
+        for (size_t i = 0; i < u8sv.length(); ++i) {
+            // static_cast from char8_t to char is fully permitted in constexpr
+            data_buffer[current_length + i] = static_cast<char>(u8sv[i]);
+        }
+        current_length += u8sv.length();
+        data_buffer[current_length] = '\0';
     }
 
         // Appends a u8 string wrapped in quotes, automatically escaping GBNF conflicts
     constexpr void append_quoted_escaped(std::u8string_view u8sv) {
-        if (current_length + u8sv.length() + 1 <= MaxCapacity) {
-
-            // 1. Opening structural quote for GBNF literal matching
-            data_buffer[current_length++] = '"';
-
-            // 2. Transcoding pass with automatic inline escaping
-            for (char8_t code_unit : u8sv) {
-                const char c = static_cast<char>(code_unit);
-
-                switch (c) {
-                    case '"':
-                        // Map a literal JSON quote to \" for GBNF terminal matching
-                        data_buffer[current_length++] = '\\';
-                        data_buffer[current_length++] = '"';
-                        break;
-                    case '\\':
-                        // Escape backslashes
-                        data_buffer[current_length++] = '\\';
-                        data_buffer[current_length++] = '\\';
-                        break;
-                    case '\n':
-                        // Flatten real newlines so they don't break the GBNF layout line structure
-                        data_buffer[current_length++] = '\\';
-                        data_buffer[current_length++] = 'n';
-                        break;
-                    case '\t':
-                        data_buffer[current_length++] = '\\';
-                        data_buffer[current_length++] = 't';
-                        break;
-                    default:
-                        data_buffer[current_length++] = c;
-                        break;
-                }
-            }
-
-            // 3. Closing structural quote for GBNF literal matching
-            data_buffer[current_length++] = '"';
-        } else {
-            throw std::out_of_range("fixed_accumulator overflow on u8 append_quoted_escaped");
+        if (current_length + u8sv.size() >= MaxCapacity) [[unlikely]] {
+            constexpr_error_trap("CRITICAL: fixed_accumulator capacity blown during GBNF rule emission!");
         }
+
+        // 1. Opening structural quote for GBNF literal matching
+        data_buffer[current_length++] = '"';
+
+        // 2. Transcoding pass with automatic inline escaping
+        for (char8_t code_unit : u8sv) {
+            const char c = static_cast<char>(code_unit);
+
+            switch (c) {
+                case '"':
+                    // Map a literal JSON quote to \" for GBNF terminal matching
+                    data_buffer[current_length++] = '\\';
+                    data_buffer[current_length++] = '"';
+                    break;
+                case '\\':
+                    // Escape backslashes
+                    data_buffer[current_length++] = '\\';
+                    data_buffer[current_length++] = '\\';
+                    break;
+                case '\n':
+                    // Flatten real newlines so they don't break the GBNF layout line structure
+                    data_buffer[current_length++] = '\\';
+                    data_buffer[current_length++] = 'n';
+                    break;
+                case '\t':
+                    data_buffer[current_length++] = '\\';
+                    data_buffer[current_length++] = 't';
+                    break;
+                default:
+                    data_buffer[current_length++] = c;
+                    break;
+            }
+        }
+
+        // 3. Closing structural quote for GBNF literal matching
+        data_buffer[current_length++] = '"';
     }
     
     constexpr void push_back(char c) {
