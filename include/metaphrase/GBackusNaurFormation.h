@@ -1172,7 +1172,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             if(key == u8"$defs") return true;
             if(key == u8"definitions") return true;
             if(key == u8"title") return true;
-            if(key == u8"description") throw "JSON Schema keyword not implemented: description";
+            if(key == u8"description") return true;
             if(key == u8"default") throw "JSON Schema keyword not implemented: default";
             if(key == u8"deprecated") throw "JSON Schema keyword not implemented: deprecated";
             if(key == u8"readOnly") throw "JSON Schema keyword not implemented: readOnly";
