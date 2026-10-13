@@ -330,11 +330,18 @@ struct fixed_accumulator {
         size_t current_edge_idx; // Tracks which outgoing edge we are processing
     };
 
+    struct GBNFTailFeatures {
+        bool needs_email     = false;
+        bool needs_uri       = false;
+        bool needs_date_time = false;
+    };
+
     template <size_t BufferSize>
     class GBackusNaurFormation{
         private:
         static constexpr size_t MaxNodes = std::max(size_t{128}, BufferSize / 16);
         static constexpr size_t AccumulatorSize = std::max(size_t{16384}, BufferSize * 4);
+
         public:
         GBackusNaurFormation() = default;
         GBackusNaurFormation(const GBackusNaurFormation& orig) = delete;
@@ -351,6 +358,7 @@ struct fixed_accumulator {
             std::array<size_t, MaxNodes> child_counts{};
             child_counts.fill(0);
 
+            GBNFTailFeatures tail_features{};
             size_t cursor = 0;
             size_t keyStart=0;
             size_t keyEnd=0;
@@ -662,7 +670,7 @@ struct fixed_accumulator {
             }
 
             std::array<fixed_accumulator<4096>, MaxNodes> vertex_rules{};
-            traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, vertex_rules);
+            traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, vertex_rules, tail_features);
             // fixed_accumulator<65536> gbnfAcc{};
             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
             gbnfAcc.append("# Generated automatically from source JSON Schema definitions\n\n");
@@ -674,7 +682,14 @@ struct fixed_accumulator {
                     gbnfAcc.append(vertex_rules[i].view());
                 }
             }
-            
+
+            if(tail_features.needs_email)gbnfAcc.append(R"(format-email ::= "\"" [a-zA-Z0-9._%+-]+ "@" [a-zA-Z0-9.-]+ "." [a-zA-Z]{2,} "\""
+)");
+            if(tail_features.needs_uri)gbnfAcc.append(R"(format-uri ::= "\"" "https://" [a-zA-Z0-9./?=&_-]+ "\""
+)");
+            if(tail_features.needs_date_time)gbnfAcc.append(R"(format-date-time ::= "\"" [0-9]{4} "-" [0-9]{2} "-" [0-9]{2} "T" [0-9]{2} ":" [0-9]{2} ":" [0-9]{2} "Z" "\""
+)");
+
             gbnfAcc.append(R"(
 # --- Fundamental JSON Primitive & Structural Types ---
 ws ::= [ \t\n\r]*
@@ -699,7 +714,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
             std::array<size_t, VCapacity>& child_counts,
-            std::array<fixed_accumulator<4096>, MaxNodes>& vertex_rules
+            std::array<fixed_accumulator<4096>, MaxNodes>& vertex_rules, GBNFTailFeatures& tail_features
         ) {
             if (vertices.size() <= 1) return;
             // 1. Explicit visitor stack replacing runtime/compiler call recursion
@@ -827,6 +842,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         if(highest_vertex_id<=w)highest_vertex_id=w+1;
                         std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view constant = findConst(v, child_counts, vertices, edges, edge_start_idx);
+                        std::u8string_view format = find(u8"format", EDGE_KIND_FORMAT, v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view defaultValue = findDefault(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx);
@@ -860,6 +876,26 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             vertex_rules[u].append("\"\\\"");
                             vertex_rules[u].append(constant);
                             vertex_rules[u].append("\\\"\"");
+                            // visited[w]=true;
+                            visited[v]=true;
+                            is_first_field = false;
+                        }
+                        else if(!format.empty() && !type.empty()){
+                            // if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            (type==u8"string") ? vertex_rules[u].append("\"\\\"") : vertex_rules[u].append("\"");
+                            if(format==u8"email"){
+                                vertex_rules[u].append(u8"format-email");
+                               tail_features.needs_email=true;
+                            }
+                            else if(format==u8"uri"){
+                                vertex_rules[u].append(u8"format-uri");
+                               tail_features.needs_uri=true;
+                            }
+                            else if(format==u8"date-time"){
+                                vertex_rules[u].append(u8"format-date-time");
+                               tail_features.needs_date_time=true;
+                            }
+                            (type==u8"string") ? vertex_rules[u].append("\\\"\"") : vertex_rules[u].append("\"");
                             // visited[w]=true;
                             visited[v]=true;
                             is_first_field = false;
@@ -1189,7 +1225,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             if(key == u8"maxLength") throw "JSON Schema keyword not implemented: maxLength";
             if(key == u8"minLength") throw "JSON Schema keyword not implemented: minLength";
             if(key == u8"pattern") throw "JSON Schema keyword not implemented: pattern";
-            if(key == u8"format") throw "JSON Schema keyword not implemented: format";
+            if(key == u8"format") return true;
             if(key == u8"contentMediaType") throw "JSON Schema keyword not implemented: contentMediaType";
             if(key == u8"contentEncoding") throw "JSON Schema keyword not implemented: contentEncoding";
             if(key == u8"contentSchema") throw "JSON Schema keyword not implemented: contentSchema";
@@ -1330,6 +1366,32 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 current_edge_idx++;
             }
             return type;
+        };
+
+        template<size_t VCapacity, size_t ECapacity>
+        constexpr std::u8string_view find(std::u8string_view key, EDGE_KIND kind, const size_t u, std::array<size_t, VCapacity>& child_counts,
+            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const std::array<size_t, VCapacity>& edge_start_idx)
+        {
+            std::u8string_view value = u8"";
+            size_t current_edge_idx = 0;
+            while(current_edge_idx<child_counts[u]){
+                size_t inner_edge = edge_start_idx[u] + current_edge_idx;
+                size_t w = std::get<1>(edges[inner_edge]);
+                const auto& w_obj = std::get<1>(vertices[w]);
+                if(value.empty() && (w_obj.key == key || std::get<2>(edges[inner_edge])==kind)){
+                    value=w_obj.value;
+                    if(w_obj.obj_type==JSON_ARRAY){
+                        size_t inner_w_edge = edge_start_idx[w];
+                        size_t x = std::get<1>(edges[inner_w_edge]);
+                        const auto& x_obj = std::get<1>(vertices[x]);
+                        value=x_obj.value;
+                    }
+                }
+                current_edge_idx++;
+            }
+            return value;
         };
 
         template<size_t VCapacity, size_t ECapacity>
