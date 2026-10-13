@@ -615,7 +615,7 @@ struct fixed_accumulator {
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
-                        else if (current_key == u8"$schema" || current_key == u8"$id" || current_key == u8"title" || current_key == u8"description") {
+                        else if (current_key == u8"$schema" || current_key == u8"$id" || current_key == u8"$comment" || current_key == u8"title" || current_key == u8"description") {
                             cursor++;
                             continue;
                         }
@@ -1266,7 +1266,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             if(key == u8"$dynamicAnchor") throw "JSON Schema keyword not implemented: $dynamicAnchor";
             if(key == u8"$dynamicRef") throw "JSON Schema keyword not implemented: $dynamicRef";
             if(key == u8"$vocabulary") throw "JSON Schema keyword not implemented: $vocabulary";
-            if(key == u8"$comment") throw "JSON Schema keyword not implemented: $comment";
+            if(key == u8"$comment") return true;
             if(key == u8"$defs") return true;
             if(key == u8"definitions") return true;
             if(key == u8"title") return true;

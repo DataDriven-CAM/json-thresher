@@ -471,6 +471,35 @@ TEST_CASE("GBNF: Semantic Format Conditional Generation") {
     CHECK_FALSE(validate_gbnf(gbnfView, R"({"admin_contact": "not_an_email"})"));
 }
 
+TEST_CASE("GBNF: Schema Internal $comment Skipping") {
+    static constexpr std::u8string_view sample_schema = u8R"({
+        "type": "object",
+        "$comment": "This is a top-level schema metadata note that should be ignored.",
+        "properties": {
+            "build_flag": {
+                "type": "boolean",
+                "$comment": "Enables experimental compiler optimizations down the road."
+            }
+        },
+        "required": ["build_flag"]
+    })";
+
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
+    constexpr auto gbnf = gBackusNaurFormation(sample_schema);
+    std::string_view gbnfView = gbnf.view();
+
+    // 1. Verify it compiles cleanly in llama.cpp
+    // CHECK(validate_gbnf_grammar(gbnf_str));
+
+    // 2. Prove that the structure validates perfectly
+    CHECK(validate_gbnf(gbnfView, R"({"build_flag": true})"));
+    CHECK(validate_gbnf(gbnfView, R"({"build_flag": false})"));
+
+    // 3. Structural validation check: ensure the literal text "$comment" 
+    // never accidentally leaked into the generated GBNF stream rules
+    CHECK(gbnfView.find("comment") == std::string_view::npos);
+}
+
 TEST_CASE("test jgf 2.0 binding"){
     constexpr char8_t jsonBuffer[] ={
 #embed "json-graph-schema_v2.json"
