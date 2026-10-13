@@ -193,6 +193,64 @@ struct fixed_accumulator {
         data_buffer[current_length++] = '"';
     }
     
+    constexpr void append_regex_as_gbnf(std::u8string_view pattern) {
+        // 1. Safety check for the maximum potential expansion length
+        if (current_length + pattern.size() + 8 >= MaxCapacity) [[unlikely]] {
+            throw "CRITICAL: fixed_accumulator capacity blown during GBNF pattern rule emission!";
+        }
+
+        // 2. Force the opening JSON string quote token match for GBNF
+        data_buffer[current_length++] = '"';
+        data_buffer[current_length++] = '\\';
+        data_buffer[current_length++] = '"';
+        data_buffer[current_length++] = '"';
+        data_buffer[current_length++] = ' ';
+
+        size_t i = 0;
+        // 3. Skip the leading anchor if present
+        if (!pattern.empty() && pattern[i] == u8'^') { i++; }
+
+        // Calculate boundary limits to safely discard trailing anchors
+        size_t length = pattern.size();
+        if (length > 0 && pattern[length - 1] == u8'$') { length--; }
+
+        // 4. Transcoding sweep loop over the char8_t string view
+        while (i < length) {
+            const char c = static_cast<char>(pattern[i]);
+
+            // Intercept and strip out non-capturing indicators (?: ...) -> ( ... )
+            if (i + 2 < length && c == '(' && pattern[i+1] == u8'?' && pattern[i+2] == u8':') {
+                data_buffer[current_length++] = ' ';
+                data_buffer[current_length++] = '(';
+                data_buffer[current_length++] = ' ';
+                i += 3; 
+                continue;
+            }
+            
+            // Handle double-escaped character tokens (like turning \\* into a clean GBNF "*")
+            if (c == '\\' && i + 1 < length) {
+                data_buffer[current_length++] = ' ';
+                data_buffer[current_length++] = '"';
+                data_buffer[current_length++] = static_cast<char>(pattern[i+1]);
+                data_buffer[current_length++] = '"';
+                data_buffer[current_length++] = ' ';
+                i += 2;
+                continue;
+            }
+
+            // Pass standard character structural items through linearly
+            data_buffer[current_length++] = c;
+            i++;
+        }
+
+        // 5. Force the closing JSON string quote token match for GBNF
+        data_buffer[current_length++] = ' ';
+        data_buffer[current_length++] = '"';
+        data_buffer[current_length++] = '\\';
+        data_buffer[current_length++] = '"';
+        data_buffer[current_length++] = '"';
+    }
+
     constexpr void push_back(char c) {
         if (current_length + 2 <= MaxCapacity) {
             data_buffer[current_length++] = c;
@@ -843,6 +901,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view constant = findConst(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view format = find(u8"format", EDGE_KIND_FORMAT, v, child_counts, vertices, edges, edge_start_idx);
+                        std::u8string_view pattern = find(u8"pattern", EDGE_KIND_PATTERN, v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view defaultValue = findDefault(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx);
                         std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx);
@@ -882,7 +941,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         }
                         else if(!format.empty() && !type.empty()){
                             // if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
-                            (type==u8"string") ? vertex_rules[u].append("\"\\\"") : vertex_rules[u].append("\"");
+                            // (type==u8"string") ? vertex_rules[u].append("\"\\\"") : vertex_rules[u].append("\"");
                             if(format==u8"email"){
                                 vertex_rules[u].append(u8"format-email");
                                tail_features.needs_email=true;
@@ -895,10 +954,13 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                                 vertex_rules[u].append(u8"format-date-time");
                                tail_features.needs_date_time=true;
                             }
-                            (type==u8"string") ? vertex_rules[u].append("\\\"\"") : vertex_rules[u].append("\"");
+                            // (type==u8"string") ? vertex_rules[u].append("\\\"\"") : vertex_rules[u].append("\"");
                             // visited[w]=true;
                             visited[v]=true;
                             is_first_field = false;
+                        }
+                        else if(!pattern.empty() && !type.empty()){
+                            vertex_rules[u].append_regex_as_gbnf(pattern);
                         }
                         else if(!defaultValue.empty() && !type.empty()){
                             // if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
@@ -1224,7 +1286,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             if(key == u8"exclusiveMinimum") throw "JSON Schema keyword not implemented: exclusiveMinimum";
             if(key == u8"maxLength") throw "JSON Schema keyword not implemented: maxLength";
             if(key == u8"minLength") throw "JSON Schema keyword not implemented: minLength";
-            if(key == u8"pattern") throw "JSON Schema keyword not implemented: pattern";
+            if(key == u8"pattern") return true;
             if(key == u8"format") return true;
             if(key == u8"contentMediaType") throw "JSON Schema keyword not implemented: contentMediaType";
             if(key == u8"contentEncoding") throw "JSON Schema keyword not implemented: contentEncoding";
@@ -1620,5 +1682,6 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 acc.push_back(temp_digits[i - 1]);
             }
         }
+        
     };
 }

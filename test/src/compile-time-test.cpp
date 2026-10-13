@@ -431,6 +431,46 @@ TEST_CASE("test polymorphism"){
   }
 }
 
+TEST_CASE("GBNF: Regex Pattern Translation") {
+    static constexpr std::u8string_view sample_schema = u8R"({
+        "type": "object",
+        "properties": {
+            "star_wildcard": {
+                "type": "string",
+                "pattern": "^[^*]*(?:\*[^*]*)?$"
+            }
+        },
+        "required": ["star_wildcard"]
+    })";
+
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
+    constexpr auto gbnf = gBackusNaurFormation(sample_schema);
+    std::string_view gbnfView = gbnf.view();
+    std::cout << gbnfView<<std::endl;
+
+    CHECK(validate_gbnf(gbnfView, R"({"star_wildcard": "pure_text"})"));
+    CHECK(validate_gbnf(gbnfView, R"({"star_wildcard": "text*more_text"})"));
+    CHECK_FALSE(validate_gbnf(gbnfView, R"({"star_wildcard": "two*many*stars"})")); // Fails regex bounds
+}
+
+TEST_CASE("GBNF: Semantic Format Conditional Generation") {
+    static constexpr std::u8string_view sample_schema = u8R"({
+        "type": "object",
+        "properties": {
+            "admin_contact": { "type": "string", "format": "email" }
+        },
+        "required": ["admin_contact"]
+    })";
+
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
+    constexpr auto gbnf = gBackusNaurFormation(sample_schema);
+    std::string_view gbnfView = gbnf.view();
+    std::cout << gbnfView<<std::endl;
+
+    CHECK(validate_gbnf(gbnfView, R"({"admin_contact": "roger@example.com"})"));
+    CHECK_FALSE(validate_gbnf(gbnfView, R"({"admin_contact": "not_an_email"})"));
+}
+
 TEST_CASE("test jgf 2.0 binding"){
     constexpr char8_t jsonBuffer[] ={
 #embed "json-graph-schema_v2.json"
