@@ -487,6 +487,7 @@ TEST_CASE("GBNF: Schema Internal $comment Skipping") {
     sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
     constexpr auto gbnf = gBackusNaurFormation(sample_schema);
     std::string_view gbnfView = gbnf.view();
+    std::cout << gbnfView<<std::endl;
 
     // 1. Verify it compiles cleanly in llama.cpp
     // CHECK(validate_gbnf_grammar(gbnf_str));
@@ -498,6 +499,28 @@ TEST_CASE("GBNF: Schema Internal $comment Skipping") {
     // 3. Structural validation check: ensure the literal text "$comment" 
     // never accidentally leaked into the generated GBNF stream rules
     CHECK(gbnfView.find("comment") == std::string_view::npos);
+}
+
+TEST_CASE("GBNF: patternProperties Dynamic Key Matching") {
+    static constexpr std::u8string_view sample_schema = u8R"({
+        "type": "object",
+        "patternProperties": {
+            "^_[a-zA-Z0-9]+$": { "type": "integer" }
+        },
+        "additionalProperties": false
+    })";
+
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
+    constexpr auto gbnf = gBackusNaurFormation(sample_schema);
+    std::string_view gbnfView = gbnf.view();
+    std::cout << gbnfView<<std::endl;
+
+    // 2. Test input variations: Keys starting with an underscore should pass
+    CHECK(validate_gbnf(gbnfView, R"({"_id": 101})"));
+    CHECK(validate_gbnf(gbnfView, R"({"_status": 200, "_count": 5})"));
+    
+    // 3. Keys NOT starting with an underscore must fail the grammar layout
+    CHECK_FALSE(validate_gbnf(gbnfView, R"({"id": 101})"));
 }
 
 TEST_CASE("test jgf 2.0 binding"){

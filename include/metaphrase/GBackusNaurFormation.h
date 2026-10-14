@@ -193,7 +193,7 @@ struct fixed_accumulator {
         data_buffer[current_length++] = '"';
     }
     
-    constexpr void append_regex_as_gbnf(std::u8string_view pattern) {
+    constexpr void append_regex_as_quoted_gbnf(std::u8string_view pattern) {
         // 1. Safety check for the maximum potential expansion length
         if (current_length + pattern.size() + 8 >= MaxCapacity) [[unlikely]] {
             throw "CRITICAL: fixed_accumulator capacity blown during GBNF pattern rule emission!";
@@ -206,6 +206,22 @@ struct fixed_accumulator {
         data_buffer[current_length++] = '"';
         data_buffer[current_length++] = ' ';
 
+        append_regex_as_gbnf(pattern);
+
+        // 5. Force the closing JSON string quote token match for GBNF
+        data_buffer[current_length++] = ' ';
+        data_buffer[current_length++] = '"';
+        data_buffer[current_length++] = '\\';
+        data_buffer[current_length++] = '"';
+        data_buffer[current_length++] = '"';
+    }
+
+    constexpr void append_regex_as_gbnf(std::u8string_view pattern) {
+        // 1. Safety check for the maximum potential expansion length
+        if (current_length + pattern.size() + 8 >= MaxCapacity) [[unlikely]] {
+            throw "CRITICAL: fixed_accumulator capacity blown during GBNF pattern rule emission!";
+        }
+
         size_t i = 0;
         // 3. Skip the leading anchor if present
         if (!pattern.empty() && pattern[i] == u8'^') { i++; }
@@ -214,9 +230,33 @@ struct fixed_accumulator {
         size_t length = pattern.size();
         if (length > 0 && pattern[length - 1] == u8'$') { length--; }
 
+        bool in_brackets = false;
         // 4. Transcoding sweep loop over the char8_t string view
         while (i < length) {
             const char c = static_cast<char>(pattern[i]);
+
+            // 1. Catch the opening of a character class set
+            if (c == '[' && (i == 0 || pattern[i - 1] != u8'\\')) {
+                in_brackets = true;
+                data_buffer[current_length++] = c;
+                i++;
+                continue;
+            }
+
+            // 2. Catch the closing of a character class set (only if it wasn't escaped with a backslash!)
+            if (c == ']' && in_brackets && (i == 0 || pattern[i - 1] != u8'\\')) {
+                in_brackets = false;
+                data_buffer[current_length++] = c;
+                i++;
+                continue;
+            }
+
+            // If inside [a-z] brackets, pass characters through natively without any quote marks!
+            if (in_brackets) {
+                data_buffer[current_length++] = c;
+                i++;
+                continue;
+            }
 
             // Intercept and strip out non-capturing indicators (?: ...) -> ( ... )
             if (i + 2 < length && c == '(' && pattern[i+1] == u8'?' && pattern[i+2] == u8':') {
@@ -238,17 +278,22 @@ struct fixed_accumulator {
                 continue;
             }
 
-            // Pass standard character structural items through linearly
+            // If it's a structural quantifier or modifier out in the open (+, *, ?), pass it directly
+            if (c == '+' || c == '*' || c == '?' || c == '(' || c == ')') {
+                data_buffer[current_length++] = c;
+                i++;
+                continue;
+            }
+
+            // Standard Literal Fallback: Safely wrap loose literal characters (like your leading '_') in string quotes
+            data_buffer[current_length++] = ' ';
+            data_buffer[current_length++] = '"';
             data_buffer[current_length++] = c;
+            data_buffer[current_length++] = '"';
+            data_buffer[current_length++] = ' ';
             i++;
         }
 
-        // 5. Force the closing JSON string quote token match for GBNF
-        data_buffer[current_length++] = ' ';
-        data_buffer[current_length++] = '"';
-        data_buffer[current_length++] = '\\';
-        data_buffer[current_length++] = '"';
-        data_buffer[current_length++] = '"';
     }
 
     constexpr void push_back(char c) {
@@ -398,6 +443,7 @@ struct fixed_accumulator {
     class GBackusNaurFormation{
         private:
         static constexpr size_t MaxNodes = std::max(size_t{128}, BufferSize / 16);
+        static constexpr size_t TotalRuleSlots = MaxNodes * 2;
         static constexpr size_t AccumulatorSize = std::max(size_t{16384}, BufferSize * 4);
 
         public:
@@ -615,7 +661,7 @@ struct fixed_accumulator {
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
-                        else if (current_key == u8"$schema" || current_key == u8"$id" || current_key == u8"$comment" || current_key == u8"title" || current_key == u8"description") {
+                        else if (current_key == u8"$schema" || current_key == u8"$id" || current_key == u8"$comment" || current_key == u8"title" || current_key == u8"description" || current_key == u8"tsType") {
                             cursor++;
                             continue;
                         }
@@ -727,7 +773,7 @@ struct fixed_accumulator {
                 sum += child_counts[i];
             }
 
-            std::array<fixed_accumulator<4096>, MaxNodes> vertex_rules{};
+            std::array<fixed_accumulator<4096>, TotalRuleSlots> vertex_rules{};
             traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, vertex_rules, tail_features);
             // fixed_accumulator<65536> gbnfAcc{};
             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
@@ -735,7 +781,7 @@ struct fixed_accumulator {
             // 1. Core Entry Point Rule
             gbnfAcc.append(vertex_rules[0].view());
 
-            for (size_t i = 1; i < vertices.size(); ++i) {
+            for (size_t i = 1; i < TotalRuleSlots; ++i) {
                 if (vertex_rules[i].size() > 0) {
                     gbnfAcc.append(vertex_rules[i].view());
                 }
@@ -772,7 +818,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
             std::array<size_t, VCapacity>& child_counts,
-            std::array<fixed_accumulator<4096>, MaxNodes>& vertex_rules, GBNFTailFeatures& tail_features
+            std::array<fixed_accumulator<4096>, TotalRuleSlots>& vertex_rules, GBNFTailFeatures& tail_features
         ) {
             if (vertices.size() <= 1) return;
             // 1. Explicit visitor stack replacing runtime/compiler call recursion
@@ -862,22 +908,6 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     auto v = entry.v_node;
                     const auto& v_obj = std::get<1>(vertices[entry.v_node]);
 
-                        // if (entry.is_required) {
-                        //     if (is_first_field) {
-                        //         vertex_rules[u].append("\"" + convert_to_string_view(key_name) + "\" ws \":\" ws " + get_rule_name(entry.v_node));
-                        //         is_first_field = false;
-                        //     } else {
-                        //         vertex_rules[u].append(" ws \",\" ws \"" + convert_to_string_view(key_name) + "\" ws \":\" ws " + get_rule_name(entry.v_node));
-                        //     }
-                        // } else {
-                        //     // Optional property layout configuration
-                        //     if (is_first_field) {
-                        //         vertex_rules[u].append("( \"" + convert_to_string_view(key_name) + "\" ws \":\" ws " + get_rule_name(entry.v_node) + " )?");
-                        //         is_first_field = false;
-                        //     } else {
-                        //         vertex_rules[u].append("( ws \",\" ws \"" + convert_to_string_view(key_name) + "\" ws \":\" ws " + get_rule_name(entry.v_node) + " )?");
-                        //     }
-                        // }
                     if(v_obj.resolved_target_idx>0){
                         size_t r=v_obj.resolved_target_idx;
                         const auto& r_obj=std::get<1>(vertices[r]);
@@ -960,7 +990,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             is_first_field = false;
                         }
                         else if(!pattern.empty() && !type.empty()){
-                            vertex_rules[u].append_regex_as_gbnf(pattern);
+                            vertex_rules[u].append_regex_as_quoted_gbnf(pattern);
                         }
                         else if(!defaultValue.empty() && !type.empty()){
                             // if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
@@ -1163,6 +1193,56 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
                     }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PATTERN_PROPERTIES && v_obj.resolved_target_idx==0){
+                        size_t inner_edge = edge_start_idx[v] + 0;
+                        size_t w = std::get<1>(edges[inner_edge]);
+                        const auto& w_obj = std::get<1>(vertices[w]);
+                        if(highest_vertex_id<=w)highest_vertex_id=w+1;
+                        std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
+                        size_t pattern_key_idx = MaxNodes + next_edge;
+                        if(w_obj.resolved_target_idx>0){
+                            const auto& r_obj=std::get<1>(vertices[w_obj.resolved_target_idx]);
+                            vertex_rules[u].append(" ( -");
+                            vertex_rules[u].append(r_obj.key);
+                            vertex_rules[u].append("-");
+                            emit_size_t_as_string(vertex_rules[u], pattern_key_idx);
+                            vertex_rules[u].append("-rule ws \":\" ws ");
+                            vertex_rules[u].append(r_obj.key);
+                            vertex_rules[u].append(" ( ws \",\" ws -");
+                            vertex_rules[u].append(r_obj.key);
+                            vertex_rules[u].append("-");
+                            emit_size_t_as_string(vertex_rules[u], pattern_key_idx);
+                            vertex_rules[u].append("-rule ws \":\" ws ");
+                            vertex_rules[u].append(r_obj.key);
+                            vertex_rules[u].append(" )* )? ");
+                            vertex_rules[pattern_key_idx].append("-");
+                            vertex_rules[pattern_key_idx].append(r_obj.key);
+                            vertex_rules[pattern_key_idx].append("-");
+                            emit_size_t_as_string(vertex_rules[pattern_key_idx], pattern_key_idx);
+                            vertex_rules[pattern_key_idx].append("-rule ::= ");
+                            vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
+                            vertex_rules[pattern_key_idx].append("\n");
+                        }
+                        else{
+                            vertex_rules[u].append(" ( -patternProperties-");
+                            emit_size_t_as_string(vertex_rules[u], pattern_key_idx);
+                            vertex_rules[u].append("-rule ws \":\" ws ");
+                            vertex_rules[u].append(type);
+                            vertex_rules[u].append(" ( ws \",\" ws ");
+                            vertex_rules[u].append("-patternProperties-");
+                            emit_size_t_as_string(vertex_rules[u], pattern_key_idx);
+                            vertex_rules[u].append("-rule ws \":\" ws ");
+                            vertex_rules[u].append(type);
+                            vertex_rules[u].append(" )* )? ");
+                            vertex_rules[pattern_key_idx].append("-patternProperties-");
+                            emit_size_t_as_string(vertex_rules[pattern_key_idx], pattern_key_idx);
+                            vertex_rules[pattern_key_idx].append("-rule ::= ");
+                            vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
+                            vertex_rules[pattern_key_idx].append("\n");
+                        }
+                        
+                        visited[v]=true;
+                    }
                     else if(u_obj.obj_type==JSON_OBJECT && v_obj.key==u8"type"){
                         offset_edge_idx++;
                         visited[v]=true;
@@ -1302,7 +1382,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             if(key == u8"minItems") throw "JSON Schema keyword not implemented: minItems";
             if(key == u8"uniqueItems") throw "JSON Schema keyword not implemented: uniqueItems";
             if(key == u8"properties") return true;
-            if(key == u8"patternProperties") throw "JSON Schema keyword not implemented: patternProperties";
+            if(key == u8"patternProperties") return true;
             if(key == u8"additionalProperties") return true;
             if(key == u8"unevaluatedProperties") throw "JSON Schema keyword not implemented: unevaluatedProperties";
             if(key == u8"required") return true;
