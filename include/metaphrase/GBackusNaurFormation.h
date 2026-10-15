@@ -296,6 +296,58 @@ struct fixed_accumulator {
 
     }
 
+    constexpr void append_int(size_t value) {
+        if (value == 0) {
+            if (current_length >= MaxCapacity) [[unlikely]] throw "Overflow";
+            data_buffer[current_length++] = '0';
+            return;
+        }
+
+        // A 64-bit unsigned int can have at most 20 digits
+        char digit_stack[20];
+        size_t stack_ptr = 0;
+
+        while (value > 0) {
+            digit_stack[stack_ptr++] = static_cast<char>('0' + (value % 10));
+            value /= 10;
+        }
+
+        if (current_length + stack_ptr >= MaxCapacity) [[unlikely]] {
+            throw "CRITICAL: fixed_accumulator integer append overflowed bounds!";
+        }
+
+        // Unwind the stack backward to write the digits in correct linear order
+        while (stack_ptr > 0) {
+            data_buffer[current_length++] = digit_stack[--stack_ptr];
+        }
+    }
+
+    constexpr void append_synthetic_slice_ref(size_t index) {
+        // 1. Append the base identifier string token directly
+        this->append("property-slice-");
+        
+        // 2. Stream the unique integer directly into the trailing index slot
+        this->append_int(index);
+    }
+
+    constexpr void append_pattern_key_ref(size_t index) {
+        this->append("pattern-key-");
+        this->append_int(index);
+    }
+
+    constexpr void append_property_assignment(std::u8string_view raw_key_name) {
+        // 1. Open the structural quote
+        this->append("\"\\\"");
+        
+        // 2. Transcode the raw schema key characters cleanly via your existing loop static_cast
+        for (char8_t unit : raw_key_name) {
+            data_buffer[current_length++] = static_cast<char>(unit);
+        }
+        
+        // 3. Close the structural quote
+        this->append("\\\"\" ws \":\" ws ");
+    }
+
     constexpr void push_back(char c) {
         if (current_length + 2 <= MaxCapacity) {
             data_buffer[current_length++] = c;
@@ -911,12 +963,16 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     if(v_obj.resolved_target_idx>0){
                         size_t r=v_obj.resolved_target_idx;
                         const auto& r_obj=std::get<1>(vertices[r]);
-                        if(!entry.is_required)vertex_rules[u].append(" ( ");
-                        vertex_rules[u].append("\"\\\"");
-                        vertex_rules[u].append(v_obj.key);
-                        vertex_rules[u].append("\\\"\" ws \":\" ws ");
-                        vertex_rules[u].append(r_obj.key);
-                        if(!entry.is_required)vertex_rules[u].append(" )? ");
+                        if(entry.is_required){
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            vertex_rules[u].append(r_obj.key);
+                        }
+                        else{
+                            vertex_rules[u].append(" ( ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            vertex_rules[u].append(r_obj.key);
+                            if(!entry.is_required)vertex_rules[u].append(" )? ");
+                        }
                         vertex_rules[u].append(" ws ");
                         visited[v]=true;
 
@@ -939,39 +995,50 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         findEnumerationArray(v, child_counts, vertices, edges, edge_start_idx, enumerated_array);
                         fixed_stack<std::u8string_view, 128> prefix_items_array;
                         findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
-                        if(!entry.is_required)vertex_rules[u].append(" ( ");
-                        if(!type.empty()){
-                          if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
-                          vertex_rules[u].append("\"\\\"");
-                          vertex_rules[u].append(v_obj.key);
-                          vertex_rules[u].append("\\\"\" ws \":\" ws ");
-                          is_first_field = false;
-                        }
+                        size_t synthetic_idx = MaxNodes + entry.edge_idx;
                         if(w_obj.resolved_target_idx>0){
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+
                             // vertex_rules[u].append("# deferred ref path ");
                             // vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
                             // vertex_rules[u].append("\n");
                             if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
-                            vertex_rules[u].append("\"\\\"");
-                            vertex_rules[u].append(v_obj.key);
-                            vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
                             vertex_rules[u].append(std::get<1>(vertices[w_obj.resolved_target_idx]).key);
+                            if(!entry.is_required)vertex_rules[u].append(")?");
                             visited[v]=true;
                             visited[w]=true;
                             is_first_field = false;
                         }
                         else if(!constant.empty() && !type.empty()){
-                            // if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+
                             vertex_rules[u].append("\"\\\"");
                             vertex_rules[u].append(constant);
                             vertex_rules[u].append("\\\"\"");
+                            if(!entry.is_required)vertex_rules[u].append(")?");
                             // visited[w]=true;
                             visited[v]=true;
                             is_first_field = false;
                         }
                         else if(!format.empty() && !type.empty()){
-                            // if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
-                            // (type==u8"string") ? vertex_rules[u].append("\"\\\"") : vertex_rules[u].append("\"");
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+
                             if(format==u8"email"){
                                 vertex_rules[u].append(u8"format-email");
                                tail_features.needs_email=true;
@@ -985,91 +1052,149 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                                tail_features.needs_date_time=true;
                             }
                             // (type==u8"string") ? vertex_rules[u].append("\\\"\"") : vertex_rules[u].append("\"");
+                            if(!entry.is_required)vertex_rules[u].append(")?");
                             // visited[w]=true;
                             visited[v]=true;
                             is_first_field = false;
                         }
                         else if(!pattern.empty() && !type.empty()){
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+
                             vertex_rules[u].append_regex_as_quoted_gbnf(pattern);
+                            if(!entry.is_required)vertex_rules[u].append(")?");
                         }
                         else if(!defaultValue.empty() && !type.empty()){
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+
                             // if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
                             (type==u8"string") ? vertex_rules[u].append("\"\\\"") : vertex_rules[u].append("\"");
                             vertex_rules[u].append(defaultValue);
                             (type==u8"string") ? vertex_rules[u].append("\\\"\"") : vertex_rules[u].append("\"");
+                            if(!entry.is_required)vertex_rules[u].append(")?");
                             // visited[w]=true;
                             visited[v]=true;
                             is_first_field = false;
                         }
                         else if(!items.empty() && type==u8"array"){
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+
                             vertex_rules[u].append(" \"[\" ws ");
                             vertex_rules[u].append(items);
                             vertex_rules[u].append(" ( ws \",\" ws ");
                             vertex_rules[u].append(items);
                             // vertex_rules[u].append(" ws ");
                             vertex_rules[u].append(" ws )* \"]\"");
-                            visited[w]=true;
-                            visited[v]=true;
-                        }
-                        else if(!additionalProperties.empty() && type==u8"object"){
-                            vertex_rules[u].append(" \"{\" ws ( string ws \":\" ws ");
-                            vertex_rules[u].append(additionalProperties);
-                            vertex_rules[u].append(" ( ws \",\" ws string ws \":\" ws ");
-                            vertex_rules[u].append(additionalProperties);
-                            // vertex_rules[u].append(" ws ");
-                            vertex_rules[u].append(" )* ws )? \"}\"");
+                            if(!entry.is_required)vertex_rules[u].append(")?");
                             visited[w]=true;
                             visited[v]=true;
                         }
                         else if(prefix_items_array.size()>0){
-                            // vertex_rules[u].append("# prefixItemsArray ");
-                            // vertex_rules[u].append(std::format("{}", prefix_items_array.size()));
-                            // vertex_rules[u].append("\n");
-                            vertex_rules[u].append("\"[\" ws (");
-                            vertex_rules[u].append("\"[\" ");
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+                            vertex_rules[u].append_synthetic_slice_ref(synthetic_idx);
+                            vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
+                            vertex_rules[synthetic_idx].append(" ::= ");
+                            vertex_rules[synthetic_idx].append("\"[\" ws (");
+                            vertex_rules[synthetic_idx].append("\"[\" ");
                             for(size_t piCount=0;piCount<prefix_items_array.size();piCount++){
                                 if(piCount>0){
-                                    vertex_rules[u].append("\",\" ");
+                                    vertex_rules[synthetic_idx].append("\",\" ");
                                 }
-                                vertex_rules[u].append(" ws ");
-                                vertex_rules[u].append(prefix_items_array[piCount]);
-                                vertex_rules[u].append(" ws ");
+                                vertex_rules[synthetic_idx].append(" ws ");
+                                vertex_rules[synthetic_idx].append(prefix_items_array[piCount]);
+                                vertex_rules[synthetic_idx].append(" ws ");
                             }
-                            vertex_rules[u].append("\"]\" ");
-                            vertex_rules[u].append(" ( ws \",\" ws ");
-                            vertex_rules[u].append("\"[\" ");
+                            vertex_rules[synthetic_idx].append("\"]\" ");
+                            vertex_rules[synthetic_idx].append(" ( ws \",\" ws ");
+                            vertex_rules[synthetic_idx].append("\"[\" ");
                             for(size_t piCount=0;piCount<prefix_items_array.size();piCount++){
                                 if(piCount>0){
-                                    vertex_rules[u].append("\",\" ");
+                                    vertex_rules[synthetic_idx].append("\",\" ");
                                 }
-                                vertex_rules[u].append(" ws ");
-                                vertex_rules[u].append(prefix_items_array[piCount]);
-                                vertex_rules[u].append(" ws ");
+                                vertex_rules[synthetic_idx].append(" ws ");
+                                vertex_rules[synthetic_idx].append(prefix_items_array[piCount]);
+                                vertex_rules[synthetic_idx].append(" ws ");
                             }
-                            vertex_rules[u].append("\"]\")*)? ws \"]\" ");
+                            vertex_rules[synthetic_idx].append("\"]\")*)? ws \"]\" ");
+                            if(!entry.is_required)vertex_rules[u].append(")?");
                             visited[w]=true;
                             visited[v]=true;
                         }
                         else if(enumerated_array.size()>0){
-                            vertex_rules[u].append(" (");
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+
+                            vertex_rules[u].append_synthetic_slice_ref(synthetic_idx);
+                            vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
+                            vertex_rules[synthetic_idx].append(" ::= ");
+                            vertex_rules[synthetic_idx].append(" (");
                             for(size_t eCount=0;eCount<enumerated_array.size();eCount++){
                                 if(eCount>0){
-                                    vertex_rules[u].append(" |");
+                                    vertex_rules[synthetic_idx].append(" |");
                                 }
-                                vertex_rules[u].append(" ");
-                                if(type==u8"string")vertex_rules[u].append("\"\\\"");
-                                vertex_rules[u].append(enumerated_array[eCount]);
-                                if(type==u8"string")vertex_rules[u].append("\\\"\"");
-                                vertex_rules[u].append(" ");
+                                vertex_rules[synthetic_idx].append(" ");
+                                if(type==u8"string")vertex_rules[synthetic_idx].append("\"\\\"");
+                                vertex_rules[synthetic_idx].append(enumerated_array[eCount]);
+                                if(type==u8"string")vertex_rules[synthetic_idx].append("\\\"\"");
+                                vertex_rules[synthetic_idx].append(" ");
                             }
-                            vertex_rules[u].append(")");
+                            vertex_rules[synthetic_idx].append(")");
+                            if(!entry.is_required)vertex_rules[u].append(")?");
+                            visited[w]=true;
+                            visited[v]=true;
+                        }
+                        else if(!additionalProperties.empty() && type==u8"object"){
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+                            vertex_rules[u].append_synthetic_slice_ref(synthetic_idx);
+                            vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
+                            vertex_rules[synthetic_idx].append(" ::= ");
+                            vertex_rules[synthetic_idx].append(" \"{\" ws ( string ws \":\" ws ");
+                            vertex_rules[synthetic_idx].append(additionalProperties);
+                            vertex_rules[synthetic_idx].append(" ( ws \",\" ws string ws \":\" ws ");
+                            vertex_rules[synthetic_idx].append(additionalProperties);
+                            vertex_rules[synthetic_idx].append(" )* ws )? \"}\"\n");
+                            if(!entry.is_required)vertex_rules[u].append(" )?");
                             visited[w]=true;
                             visited[v]=true;
                         }
                         else if(std::get<2>(edges[inner_edge])==EDGE_KIND_ONEOF){
-                            vertex_rules[u].append("\"\\\"");
-                            vertex_rules[u].append(v_obj.key);
-                            vertex_rules[u].append("\\\"\" ws \":\" ws (");
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            vertex_rules[u].append("(");
                             for(size_t v_edge_idx=0;v_edge_idx<child_counts[v];v_edge_idx++){
                                 if(v_edge_idx>0){
                                     vertex_rules[u].append(" |");
@@ -1089,13 +1214,21 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                                 visited[x]=true;
                             }
                             vertex_rules[u].append(") ");
+                            if(!entry.is_required)vertex_rules[u].append(")?");
                             visited[w]=true;
                             visited[v]=true;
                         }
                         else {
+                            if(!entry.is_required)vertex_rules[u].append(" ( ");
+                            if(!type.empty()){
+                            if (!is_first_field) vertex_rules[u].append(" ws \",\" ws ");
+                            vertex_rules[u].append_property_assignment(v_obj.key);
+                            is_first_field = false;
+                            }
+
                             vertex_rules[u].append(w_obj.value);
+                            if(!entry.is_required)vertex_rules[u].append(")?");
                         }
-                        if(!entry.is_required)vertex_rules[u].append(")?");
                         if(!type.empty()){
                             visited[w]=true;
                             visited[v]=true;
@@ -1138,9 +1271,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     else if(v_obj.resolved_target_idx>0){
                         size_t r=v_obj.resolved_target_idx;
                         const auto& r_obj=std::get<1>(vertices[r]);
-                        vertex_rules[u].append("\"\\\"");
-                        vertex_rules[u].append(v_obj.key);
-                        vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                        vertex_rules[u].append_property_assignment(v_obj.key);
                         vertex_rules[u].append(r_obj.key);
                         vertex_rules[u].append(" ws ");
                         visited[v]=true;
@@ -1153,9 +1284,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     else if(v_obj.resolved_target_idx>0){
                         // vertex_rules[u].append("\n# reference syntax sugar\n");
                         if (state.current_edge_idx > offset_edge_idx) vertex_rules[u].append(choiceDelimiter);
-                        vertex_rules[u].append("\"\\\"");
-                        vertex_rules[u].append(v_obj.key);
-                        vertex_rules[u].append("\\\"\" ws \":\" ws ");
+                        vertex_rules[u].append_property_assignment(v_obj.key);
                         vertex_rules[u].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
                         visited[v]=true;
                     }
@@ -1164,9 +1293,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_CONST){
-                        vertex_rules[u].append("\"\\\"");
-                        vertex_rules[u].append(v_obj.value);
-                        vertex_rules[u].append("\\\"\"");
+                        vertex_rules[u].append_property_assignment(v_obj.value);
                         visited[v]=true;
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_TYPE){
@@ -1202,41 +1329,38 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         size_t pattern_key_idx = MaxNodes + next_edge;
                         if(w_obj.resolved_target_idx>0){
                             const auto& r_obj=std::get<1>(vertices[w_obj.resolved_target_idx]);
-                            vertex_rules[u].append(" ( -");
+                            vertex_rules[u].append(" ( ");
                             vertex_rules[u].append(r_obj.key);
                             vertex_rules[u].append("-");
-                            emit_size_t_as_string(vertex_rules[u], pattern_key_idx);
-                            vertex_rules[u].append("-rule ws \":\" ws ");
+                            vertex_rules[u].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[u].append(" ws \":\" ws ");
                             vertex_rules[u].append(r_obj.key);
                             vertex_rules[u].append(" ( ws \",\" ws -");
                             vertex_rules[u].append(r_obj.key);
                             vertex_rules[u].append("-");
-                            emit_size_t_as_string(vertex_rules[u], pattern_key_idx);
-                            vertex_rules[u].append("-rule ws \":\" ws ");
+                            vertex_rules[u].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[u].append(" ws \":\" ws ");
                             vertex_rules[u].append(r_obj.key);
                             vertex_rules[u].append(" )* )? ");
-                            vertex_rules[pattern_key_idx].append("-");
                             vertex_rules[pattern_key_idx].append(r_obj.key);
                             vertex_rules[pattern_key_idx].append("-");
-                            emit_size_t_as_string(vertex_rules[pattern_key_idx], pattern_key_idx);
-                            vertex_rules[pattern_key_idx].append("-rule ::= ");
+                            vertex_rules[pattern_key_idx].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[pattern_key_idx].append(" ::= ");
                             vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
                             vertex_rules[pattern_key_idx].append("\n");
                         }
                         else{
-                            vertex_rules[u].append(" ( -patternProperties-");
-                            emit_size_t_as_string(vertex_rules[u], pattern_key_idx);
-                            vertex_rules[u].append("-rule ws \":\" ws ");
+                            vertex_rules[u].append(" ( ");
+                            vertex_rules[u].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[u].append(" ws \":\" ws ");
                             vertex_rules[u].append(type);
                             vertex_rules[u].append(" ( ws \",\" ws ");
-                            vertex_rules[u].append("-patternProperties-");
-                            emit_size_t_as_string(vertex_rules[u], pattern_key_idx);
-                            vertex_rules[u].append("-rule ws \":\" ws ");
+                            vertex_rules[u].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[u].append(" ws \":\" ws ");
                             vertex_rules[u].append(type);
                             vertex_rules[u].append(" )* )? ");
-                            vertex_rules[pattern_key_idx].append("-patternProperties-");
-                            emit_size_t_as_string(vertex_rules[pattern_key_idx], pattern_key_idx);
-                            vertex_rules[pattern_key_idx].append("-rule ::= ");
+                            vertex_rules[pattern_key_idx].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[pattern_key_idx].append(" ::= ");
                             vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
                             vertex_rules[pattern_key_idx].append("\n");
                         }
@@ -1271,10 +1395,8 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             vertex_rules[u].append("-rule");
                         }
                         else{
-                        //   vertex_rules[u].append("\"\\\"");
-                        //   vertex_rules[u].append(v_obj.key);
-                        //   vertex_rules[u].append("\\\"\" ws \":\" ws ");
-                          //vertex_rules[u].append(v_obj.value);
+                        //   vertex_rules[u].append_property_assignment(v_obj.key);
+                           //vertex_rules[u].append(v_obj.value);
                         }
 
                     }
