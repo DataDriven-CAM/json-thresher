@@ -1318,6 +1318,24 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         //visited[v]=true;
 
                     }
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ANYOF){
+                        if(state.current_edge_idx > 0) vertex_rules[u].append(" | ");
+                        // vertex_rules[u].append("\n# oneOf impl here\n");
+                        
+                        vertex_rules[u].append(v_obj.key);
+                        // vertex_rules[v].append(v_obj.key);
+                        if(v_obj.key.empty()){
+                            vertex_rules[u].append("-branch-");
+                            emit_size_t_as_string(vertex_rules[u], v);
+                            vertex_rules[u].append("-rule ");
+                            // vertex_rules[v].append("-branch-");
+                            // emit_size_t_as_string(vertex_rules[v], v);
+                            // vertex_rules[v].append("-rule ::= ");
+                        }
+                        
+                        //visited[v]=true;
+
+                    }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PATTERN_PROPERTIES && v_obj.resolved_target_idx==0){
@@ -1515,7 +1533,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             if(key == u8"dependentSchemas") throw "JSON Schema keyword not implemented: dependentSchemas";
             if(key == u8"dependencies") throw "JSON Schema keyword not implemented: dependencies";
             if(key == u8"allOf") throw "JSON Schema keyword not implemented: allOf";
-            if(key == u8"anyOf") throw "JSON Schema keyword not implemented: anyOf";
+            if(key == u8"anyOf") return true;
             if(key == u8"oneOf") return true;
             if(key == u8"not") throw "JSON Schema keyword not implemented: not";
             if(key == u8"if") throw "JSON Schema keyword not implemented: if";
