@@ -100,6 +100,7 @@ bool validate_gbnf(std::string_view gbnfView, std::string_view jsonContent) {
     bool success = WIFEXITED(status) && WEXITSTATUS(status) == 0;
     return success;
 }
+
 TEST_SUITE("compile-time"){
 
 TEST_CASE("test generating grammar components") {
@@ -571,6 +572,35 @@ TEST_CASE("test jgf 2.0 binding"){
   std::ofstream gbnfFile("jgf2.gbnf");
   gbnfFile << gbnfView;
   gbnfFile.close();
+}
+
+TEST_CASE("GBNF: array of objects"){
+    static constexpr std::u8string_view sample_schema = u8R"({
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": [
+          "id",
+          "article-journal"
+        ]
+      },
+      "id": {
+        "type": ["string", "number"]
+      }
+    }
+  }
+})";
+
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
+    constexpr auto gbnf = gBackusNaurFormation(sample_schema);
+    std::string_view gbnfView = gbnf.view();
+    std::cout << gbnfView<<std::endl;
+
+    // 2. Test input variations: Keys starting with an underscore should pass
+    CHECK(validate_gbnf(gbnfView, R"([{"id": "doe2024optics"}, {"type": "article-journal"}])"));
 }
 
 TEST_CASE("test meta of typing") {
