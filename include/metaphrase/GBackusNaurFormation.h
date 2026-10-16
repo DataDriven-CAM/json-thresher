@@ -523,6 +523,7 @@ struct fixed_accumulator {
             bool hitComma=false;
             bool firstObject=true;
             fixed_accumulator<AccumulatorSize> gbnfAcc{};
+            std::array<std::u8string_view, MaxNodes> rule_symbol_names{};
             while(cursor<jsonBuffer.size()){
                 while (cursor < jsonBuffer.size() && 
                     (jsonBuffer[cursor] == ' ' || jsonBuffer[cursor] == '\t' || 
@@ -628,7 +629,7 @@ struct fixed_accumulator {
                         // }
                     keyStart = 0;
                     keyEnd = 0;
-                   if(!firstObject && vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
+                    if(!firstObject && vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
                         raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
                         // if(schemaContext==DATAKEY_MODE && current_key==u8"type"){
@@ -826,14 +827,13 @@ struct fixed_accumulator {
                 sum += child_counts[i];
             }
 
-            std::array<std::u8string_view, MaxNodes> rule_symbol_names{};
             std::array<fixed_accumulator<4096>, TotalRuleSlots> vertex_rules{};
             traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, rule_symbol_names, vertex_rules, tail_features);
             // fixed_accumulator<65536> gbnfAcc{};
             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
             gbnfAcc.append("# Generated automatically from source JSON Schema definitions\n\n");
 
-            for (size_t idx = 0; idx < MaxNodes; ++idx) {
+            for (size_t idx = 0; idx < MaxNodes; idx++) {
                 if (!rule_symbol_names[idx].empty()) {
                     gbnfAcc.append("#By symbol: ");
                     gbnfAcc.append_int(idx);
@@ -940,10 +940,11 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 auto& state = traversal_stack.back();
                 size_t u = state.vertex_id;
                 const auto& u_obj = std::get<1>(vertices[u]);
-                size_t current_idx = state.target_rule_slot;
+                size_t active_slot = state.target_rule_slot;
+                size_t current_idx = u+1;
 
                 if(u_obj.obj_type==JSON_OBJECT && u==0 && child_counts[u]==1 && std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key==u8"type"){
-                    vertex_rules[u].append("\"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
+                    vertex_rules[active_slot].append("\"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
                     if (!visited[u]) {
                     visited[u] = true;
                     }
@@ -965,29 +966,26 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 std::u8string_view rootItems = findItems(u, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
                 // 1. Declare the rule name on entry
                 if (state.current_edge_idx == 0 && child_counts[u]>0) {
-                    // vertex_rules[u].append(u_obj.key);
+                    // vertex_rules[active_slot].append(u_obj.key);
                     // if(u_obj.key.empty()){
-                    //     vertex_rules[u].append("-branch-");
-                    //     emit_size_t_as_string(vertex_rules[u], u);
-                    //     vertex_rules[u].append("-rule");
+                    //     vertex_rules[active_slot].append("-branch-");
+                    //     emit_size_t_as_string(vertex_rules[active_slot], u);
+                    //     vertex_rules[active_slot].append("-rule");
                     // }
-                    // vertex_rules[u].append(" ::= ");
-                    if (u_obj.obj_type == JSON_OBJECT && rootType==u8"object"){
-                         vertex_rules[u].append("\"{\" ws ");
-                         current_idx = u;
-                    }
+                    // vertex_rules[active_slot].append(" ::= ");
+                    if (u_obj.obj_type == JSON_OBJECT && rootType==u8"object")vertex_rules[active_slot].append("\"{\" ws ");
                     else if (u_obj.obj_type == JSON_OBJECT && rootType==u8"array"){
-                        vertex_rules[u].append("\"[\" ws ");
+                        vertex_rules[active_slot].append("\"[\" ws ");
                         if(!rootItems.empty()){
                             size_t next_edge = edge_start_idx[u] + 0;
                             size_t v = std::get<1>(edges[next_edge]);
                             const auto& v_obj = std::get<1>(vertices[v]);
                             current_idx = (MaxNodes * 2) + next_edge;
-                            vertex_rules[u].append(" item-block-");
-                            vertex_rules[u].append_int(current_idx);
-                            vertex_rules[u].append(" ( ws \",\" ws item-block-");
-                            vertex_rules[u].append_int(current_idx);
-                            vertex_rules[u].append(" )* ");
+                            vertex_rules[active_slot].append(" item-block-");
+                            vertex_rules[active_slot].append_int(current_idx);
+                            vertex_rules[active_slot].append(" ( ws \",\" ws item-block-");
+                            vertex_rules[active_slot].append_int(current_idx);
+                            vertex_rules[active_slot].append(" )* ");
                             // vertex_rules[items_idx].append("item-block-");
                             // vertex_rules[items_idx].append_int(items_idx);
                             // vertex_rules[items_idx].append(" ::= ");
@@ -997,10 +995,10 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         }
                     }
                     if(std::get<2>(edges[edge_start_idx[u]]) == EDGE_KIND_DEFINITIONS){
-                        // vertex_rules[current_idx].append("# hit definitions edges");
-                        // vertex_rules[current_idx].append_int(std::get<1>(edges[edge_start_idx[u]]));
-                        // vertex_rules[current_idx].append("\n");
-                        // rule_symbol_names[std::get<1>(edges[edge_start_idx[u]])] = std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key;
+                        vertex_rules[active_slot].append("# hit definitions edges");
+                        vertex_rules[active_slot].append_int(std::get<1>(edges[edge_start_idx[u]]));
+                        vertex_rules[active_slot].append("\n");
+                        rule_symbol_names[std::get<1>(edges[edge_start_idx[u]])] = std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key;
                     }
                 }
 
@@ -1041,16 +1039,16 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         size_t r=v_obj.resolved_target_idx;
                         const auto& r_obj=std::get<1>(vertices[r]);
                         if(entry.is_required){
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
-                            vertex_rules[current_idx].append(r_obj.key);
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                            vertex_rules[active_slot].append(r_obj.key);
                         }
                         else{
-                            vertex_rules[current_idx].append(" ( ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
-                            vertex_rules[current_idx].append(r_obj.key);
-                            if(!entry.is_required)vertex_rules[current_idx].append(" )? ");
+                            vertex_rules[active_slot].append(" ( ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                            vertex_rules[active_slot].append(r_obj.key);
+                            if(!entry.is_required)vertex_rules[active_slot].append(" )? ");
                         }
-                        vertex_rules[current_idx].append(" ws ");
+                        vertex_rules[active_slot].append(" ws ");
                         rule_symbol_names[r] = r_obj.key;
                         visited[v]=true;
 
@@ -1066,7 +1064,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         std::u8string_view constant = find(u8"const", EDGE_KIND_CONST, v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
                         std::u8string_view format = find(u8"format", EDGE_KIND_FORMAT, v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
                         std::u8string_view pattern = find(u8"pattern", EDGE_KIND_PATTERN, v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
-                        std::u8string_view defaultValue = findDefault(v, child_counts, vertices, edges, edge_start_idx);
+                        std::u8string_view defaultValue = find(u8"default", EDGE_KIND_DEFAULT, v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
                         std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
                         std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
                         fixed_stack<std::u8string_view, 128> enumerated_array;
@@ -1075,118 +1073,118 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
                         size_t synthetic_idx = MaxNodes + entry.edge_idx;
                         if(w_obj.resolved_target_idx>0){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
 
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
-                            vertex_rules[current_idx].append(std::get<1>(vertices[w_obj.resolved_target_idx]).key);
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                            vertex_rules[active_slot].append(std::get<1>(vertices[w_obj.resolved_target_idx]).key);
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                             visited[v]=true;
                             visited[w]=true;
                             rule_symbol_names[w_obj.resolved_target_idx]=std::get<1>(vertices[w_obj.resolved_target_idx]).key;
                             is_first_field = false;
                         }
                         else if(!constant.empty() && !type.empty()){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
 
-                            vertex_rules[current_idx].append("\"\\\"");
-                            vertex_rules[current_idx].append(constant);
-                            vertex_rules[current_idx].append("\\\"\"");
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            vertex_rules[active_slot].append("\"\\\"");
+                            vertex_rules[active_slot].append(constant);
+                            vertex_rules[active_slot].append("\\\"\"");
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                             // visited[w]=true;
                             visited[v]=true;
                             is_first_field = false;
                         }
                         else if(!format.empty() && !type.empty()){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
 
                             if(format==u8"email"){
-                                vertex_rules[current_idx].append(u8"format-email");
+                                vertex_rules[active_slot].append(u8"format-email");
                                tail_features.needs_email=true;
                             }
                             else if(format==u8"uri"){
-                                vertex_rules[current_idx].append(u8"format-uri");
+                                vertex_rules[active_slot].append(u8"format-uri");
                                tail_features.needs_uri=true;
                             }
                             else if(format==u8"date-time"){
-                                vertex_rules[current_idx].append(u8"format-date-time");
+                                vertex_rules[active_slot].append(u8"format-date-time");
                                tail_features.needs_date_time=true;
                             }
-                            // (type==u8"string") ? vertex_rules[current_idx].append("\\\"\"") : vertex_rules[current_idx].append("\"");
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            // (type==u8"string") ? vertex_rules[active_slot].append("\\\"\"") : vertex_rules[active_slot].append("\"");
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                             // visited[w]=true;
                             visited[v]=true;
                             is_first_field = false;
                         }
                         else if(!pattern.empty() && !type.empty()){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
 
-                            vertex_rules[current_idx].append_regex_as_quoted_gbnf(pattern);
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            vertex_rules[active_slot].append_regex_as_quoted_gbnf(pattern);
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                         }
                         else if(!defaultValue.empty() && !type.empty()){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
 
-                            // if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            (type==u8"string") ? vertex_rules[current_idx].append("\"\\\"") : vertex_rules[current_idx].append("\"");
-                            vertex_rules[current_idx].append(defaultValue);
-                            (type==u8"string") ? vertex_rules[current_idx].append("\\\"\"") : vertex_rules[current_idx].append("\"");
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            // if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            (type==u8"string") ? vertex_rules[active_slot].append("\"\\\"") : vertex_rules[active_slot].append("\"");
+                            vertex_rules[active_slot].append(defaultValue);
+                            (type==u8"string") ? vertex_rules[active_slot].append("\\\"\"") : vertex_rules[active_slot].append("\"");
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                             // visited[w]=true;
                             visited[v]=true;
                             is_first_field = false;
                         }
                         else if(!items.empty() && type==u8"array"){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
 
-                            vertex_rules[current_idx].append(" \"[\" ws ");
-                            vertex_rules[current_idx].append(items);
-                            vertex_rules[current_idx].append(" ( ws \",\" ws ");
-                            vertex_rules[current_idx].append(items);
-                            // vertex_rules[current_idx].append(" ws ");
-                            vertex_rules[current_idx].append(" ws )* \"]\"");
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            vertex_rules[active_slot].append(" \"[\" ws ");
+                            vertex_rules[active_slot].append(items);
+                            vertex_rules[active_slot].append(" ( ws \",\" ws ");
+                            vertex_rules[active_slot].append(items);
+                            // vertex_rules[active_slot].append(" ws ");
+                            vertex_rules[active_slot].append(" ws )* \"]\"");
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                             visited[w]=true;
                             visited[v]=true;
                         }
                         else if(prefix_items_array.size()>0){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
-                            vertex_rules[current_idx].append_synthetic_slice_ref(synthetic_idx);
+                            vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
                             // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
                             // vertex_rules[synthetic_idx].append(" ::= ");
                             vertex_rules[synthetic_idx].append("\"[\" ws (");
@@ -1211,19 +1209,19 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                                 vertex_rules[synthetic_idx].append(" ws ");
                             }
                             vertex_rules[synthetic_idx].append("\"]\")*)? ws \"]\" ");
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                             visited[w]=true;
                             visited[v]=true;
                         }
                         else if(enumerated_array.size()>0){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
 
-                            vertex_rules[current_idx].append_synthetic_slice_ref(synthetic_idx);
+                            vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
                             // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
                             // vertex_rules[synthetic_idx].append(" ::= ");
                             vertex_rules[synthetic_idx].append(" (");
@@ -1238,18 +1236,18 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                                 vertex_rules[synthetic_idx].append(" ");
                             }
                             vertex_rules[synthetic_idx].append(")");
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                             visited[w]=true;
                             visited[v]=true;
                         }
                         else if(!additionalProperties.empty() && type==u8"object"){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
-                            vertex_rules[current_idx].append_synthetic_slice_ref(synthetic_idx);
+                            vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
                             // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
                             // vertex_rules[synthetic_idx].append(" ::= ");
                             vertex_rules[synthetic_idx].append(" \"{\" ws ( string ws \":\" ws ");
@@ -1257,60 +1255,60 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             vertex_rules[synthetic_idx].append(" ( ws \",\" ws string ws \":\" ws ");
                             vertex_rules[synthetic_idx].append(additionalProperties);
                             vertex_rules[synthetic_idx].append(" )* ws )? \"}\"\n");
-                            if(!entry.is_required)vertex_rules[current_idx].append(" )?");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" )?");
                             visited[w]=true;
                             visited[v]=true;
                         }
                         else if(std::get<2>(edges[inner_edge])==EDGE_KIND_ONEOF){
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
 
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
-                            vertex_rules[current_idx].append("(");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                            vertex_rules[active_slot].append("(");
                             for(size_t v_edge_idx=0;v_edge_idx<child_counts[v];v_edge_idx++){
                                 if(v_edge_idx>0){
-                                    vertex_rules[current_idx].append(" |");
+                                    vertex_rules[active_slot].append(" |");
                                 }
-                                vertex_rules[current_idx].append(" ");
+                                vertex_rules[active_slot].append(" ");
                                 size_t inner_v_edge = edge_start_idx[v] + v_edge_idx;
                                 size_t w = std::get<1>(edges[inner_v_edge]);
                                 size_t inner_x_edge = edge_start_idx[w];
                                 size_t x = std::get<1>(edges[inner_x_edge]);
                                 const auto& x_obj = std::get<1>(vertices[x]);
                                 if(x_obj.resolved_target_idx>0){
-                                    vertex_rules[current_idx].append(std::get<1>(vertices[x_obj.resolved_target_idx]).key);
+                                    vertex_rules[active_slot].append(std::get<1>(vertices[x_obj.resolved_target_idx]).key);
                                     rule_symbol_names[x_obj.resolved_target_idx] = std::get<1>(vertices[x_obj.resolved_target_idx]).key;
                                 }
                                 else
-                                    vertex_rules[current_idx].append(x_obj.value);
-                                vertex_rules[current_idx].append(" ");
+                                    vertex_rules[active_slot].append(x_obj.value);
+                                vertex_rules[active_slot].append(" ");
                                 visited[x]=true;
                             }
-                            vertex_rules[current_idx].append(") ");
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            vertex_rules[active_slot].append(") ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                             visited[w]=true;
                             visited[v]=true;
                         }
                         else {
-                            if(!entry.is_required)vertex_rules[current_idx].append(" ( ");
+                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[current_idx].append(" ws \",\" ws ");
-                            vertex_rules[current_idx].append_property_assignment(v_obj.key);
+                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             is_first_field = false;
                             }
 
-                            vertex_rules[current_idx].append(w_obj.value);
-                            if(!entry.is_required)vertex_rules[current_idx].append(")?");
+                            vertex_rules[active_slot].append(w_obj.value);
+                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
                         }
                         if(!type.empty()){
                             visited[w]=true;
                             visited[v]=true;
                         }
-                        // current_idx = synthetic_idx;
+                        current_idx = synthetic_idx;
                         required_stack.clear();
                     }
                 }
@@ -1323,24 +1321,24 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     if(highest_vertex_id<=v)highest_vertex_id=v+1;
 
                     // if(v_obj.key==u8"$ref"){
-                    //     vertex_rules[u].append("#$ref ");
-                    //     vertex_rules[u].append(std::to_string(child_counts[v]));
+                    //     vertex_rules[active_slot].append("#$ref ");
+                    //     vertex_rules[active_slot].append(std::to_string(child_counts[v]));
                     //     size_t inner_edge = edge_start_idx[v] + 0;
                     //     size_t w = std::get<1>(edges[inner_edge]);
                     //     const auto& w_obj = std::get<1>(vertices[w]);
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(std::get<2>(edges[inner_edge])));
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(w_obj.key);
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(v_obj.resolved_target_idx));
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(child_counts[w]));
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(v_obj.parent_id));
-                    //     vertex_rules[u].append(" ");
-                    //     vertex_rules[u].append(std::to_string(v_obj.id));
-                    //     vertex_rules[u].append(" ");
+                    //     vertex_rules[active_slot].append(" ");
+                    //     vertex_rules[active_slot].append(std::to_string(std::get<2>(edges[inner_edge])));
+                    //     vertex_rules[active_slot].append(" ");
+                    //     vertex_rules[active_slot].append(w_obj.key);
+                    //     vertex_rules[active_slot].append(" ");
+                    //     vertex_rules[active_slot].append(std::to_string(v_obj.resolved_target_idx));
+                    //     vertex_rules[active_slot].append(" ");
+                    //     vertex_rules[active_slot].append(std::to_string(child_counts[w]));
+                    //     vertex_rules[active_slot].append(" ");
+                    //     vertex_rules[active_slot].append(std::to_string(v_obj.parent_id));
+                    //     vertex_rules[active_slot].append(" ");
+                    //     vertex_rules[active_slot].append(std::to_string(v_obj.id));
+                    //     vertex_rules[active_slot].append(" ");
                     // }
                     std::u8string_view choiceDelimiter = (std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF) ? u8" | " : u8" \",\" ";
                     if(visited[v]){
@@ -1349,23 +1347,24 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     else if(v_obj.resolved_target_idx>0){
                         size_t r=v_obj.resolved_target_idx;
                         const auto& r_obj=std::get<1>(vertices[r]);
-                        vertex_rules[current_idx].append_property_assignment(v_obj.key);
-                        vertex_rules[current_idx].append(r_obj.key);
-                        vertex_rules[current_idx].append(" ws ");
-                         rule_symbol_names[r] = r_obj.key;
+                        vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                        vertex_rules[active_slot].append(r_obj.key);
+                        vertex_rules[active_slot].append(" ws ");
+                        rule_symbol_names[r] = r_obj.key;
                         visited[v]=true;
 
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
-                        // vertex_rules[current_idx].append("\n# definitions syntax sugar\n");
+                        // vertex_rules[active_slot].append("\n# definitions syntax sugar\n");
                         // rule_symbol_names[u] = u_obj.key;
+                        rule_symbol_names[std::get<1>(edges[next_edge])] = std::get<1>(vertices[v_obj.resolved_target_idx]).key;
                         visited[v]=true;
                     }
                     else if(v_obj.resolved_target_idx>0){
-                        // vertex_rules[current_idx].append("\n# reference syntax sugar\n");
-                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[current_idx].append(choiceDelimiter);
-                        vertex_rules[current_idx].append_property_assignment(v_obj.key);
-                        vertex_rules[current_idx].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
+                        // vertex_rules[active_slot].append("\n# reference syntax sugar\n");
+                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
+                        vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                        vertex_rules[active_slot].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
                         visited[v]=true;
                         rule_symbol_names[v_obj.resolved_target_idx]=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
                     }
@@ -1374,23 +1373,23 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_CONST){
-                        vertex_rules[current_idx].append_property_assignment(v_obj.value);
+                        vertex_rules[active_slot].append_property_assignment(v_obj.value);
                         visited[v]=true;
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_TYPE){
-                        vertex_rules[current_idx].append(v_obj.value);
+                        vertex_rules[active_slot].append(v_obj.value);
                         visited[v]=true;
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF){
-                        if(state.current_edge_idx > 0) vertex_rules[u].append(" | ");
-                        // vertex_rules[u].append("\n# oneOf impl here\n");
+                        if(state.current_edge_idx > 0) vertex_rules[active_slot].append(" | ");
+                        // vertex_rules[active_slot].append("\n# oneOf impl here\n");
                         
-                        vertex_rules[u].append(v_obj.key);
+                        vertex_rules[active_slot].append(v_obj.key);
                         // vertex_rules[v].append(v_obj.key);
                         if(v_obj.key.empty()){
-                            vertex_rules[u].append("branch-");
-                            vertex_rules[u].append_int(v);
-                            // vertex_rules[u].append("-rule ");
+                            vertex_rules[active_slot].append("branch-");
+                            vertex_rules[active_slot].append_int(v);
+                            // vertex_rules[active_slot].append("-rule ");
                             // vertex_rules[v].append("-branch-");
                             // emit_size_t_as_string(vertex_rules[v], v);
                             // vertex_rules[v].append("-rule ::= ");
@@ -1400,15 +1399,15 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ANYOF){
-                        if(state.current_edge_idx > 0) vertex_rules[u].append(" | ");
-                        // vertex_rules[u].append("\n# oneOf impl here\n");
+                        if(state.current_edge_idx > 0) vertex_rules[active_slot].append(" | ");
+                        // vertex_rules[active_slot].append("\n# oneOf impl here\n");
                         
-                        vertex_rules[u].append(v_obj.key);
+                        vertex_rules[active_slot].append(v_obj.key);
                         // vertex_rules[v].append(v_obj.key);
                         if(v_obj.key.empty()){
-                            vertex_rules[u].append("branch-");
-                            vertex_rules[u].append_int(v);
-                            // vertex_rules[u].append("-rule ");
+                            vertex_rules[active_slot].append("branch-");
+                            vertex_rules[active_slot].append_int(v);
+                            // vertex_rules[active_slot].append("-rule ");
                             // vertex_rules[v].append("-branch-");
                             // emit_size_t_as_string(vertex_rules[v], v);
                             // vertex_rules[v].append("-rule ::= ");
@@ -1419,13 +1418,13 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS){
                         // std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
-                        // if (state.current_edge_idx > offset_edge_idx) vertex_rules[current_idx].append(choiceDelimiter);
-                        // if(type==u8"object")vertex_rules[current_idx].append("{ ");
-                        // else if(type==u8"array")vertex_rules[current_idx].append("[ ");
+                        // if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
+                        // if(type==u8"object")vertex_rules[active_slot].append("{ ");
+                        // else if(type==u8"array")vertex_rules[active_slot].append("[ ");
 
-                        // if(type==u8"object")vertex_rules[current_idx].append("} ");
-                        // else if(type==u8"array")vertex_rules[current_idx].append("] ");
-
+                        // if(type==u8"object")vertex_rules[active_slot].append("} ");
+                        // else if(type==u8"array")vertex_rules[active_slot].append("] ");
+                        current_idx = MaxNodes * 2 + next_edge;
                         visited[v]=true;
                     }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
@@ -1439,19 +1438,19 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         size_t pattern_key_idx = MaxNodes + next_edge;
                         if(w_obj.resolved_target_idx>0){
                             const auto& r_obj=std::get<1>(vertices[w_obj.resolved_target_idx]);
-                            vertex_rules[current_idx].append(" ( ");
-                            vertex_rules[current_idx].append(r_obj.key);
-                            vertex_rules[current_idx].append("-");
-                            vertex_rules[current_idx].append_pattern_key_ref(pattern_key_idx);
-                            vertex_rules[current_idx].append(" ws \":\" ws ");
-                            vertex_rules[current_idx].append(r_obj.key);
-                            vertex_rules[current_idx].append(" ( ws \",\" ws -");
-                            vertex_rules[current_idx].append(r_obj.key);
-                            vertex_rules[current_idx].append("-");
-                            vertex_rules[current_idx].append_pattern_key_ref(pattern_key_idx);
-                            vertex_rules[current_idx].append(" ws \":\" ws ");
-                            vertex_rules[current_idx].append(r_obj.key);
-                            vertex_rules[current_idx].append(" )* )? ");
+                            vertex_rules[active_slot].append(" ( ");
+                            vertex_rules[active_slot].append(r_obj.key);
+                            vertex_rules[active_slot].append("-");
+                            vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[active_slot].append(" ws \":\" ws ");
+                            vertex_rules[active_slot].append(r_obj.key);
+                            vertex_rules[active_slot].append(" ( ws \",\" ws -");
+                            vertex_rules[active_slot].append(r_obj.key);
+                            vertex_rules[active_slot].append("-");
+                            vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[active_slot].append(" ws \":\" ws ");
+                            vertex_rules[active_slot].append(r_obj.key);
+                            vertex_rules[active_slot].append(" )* )? ");
                             // vertex_rules[pattern_key_idx].append(r_obj.key);
                             // vertex_rules[pattern_key_idx].append("-");
                             // vertex_rules[pattern_key_idx].append_pattern_key_ref(pattern_key_idx);
@@ -1461,15 +1460,15 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             rule_symbol_names[w_obj.resolved_target_idx]=std::get<1>(vertices[w_obj.resolved_target_idx]).key;
                         }
                         else{
-                            vertex_rules[current_idx].append(" ( ");
-                            vertex_rules[current_idx].append_pattern_key_ref(pattern_key_idx);
-                            vertex_rules[current_idx].append(" ws \":\" ws ");
-                            vertex_rules[current_idx].append(type);
-                            vertex_rules[current_idx].append(" ( ws \",\" ws ");
-                            vertex_rules[current_idx].append_pattern_key_ref(pattern_key_idx);
-                            vertex_rules[current_idx].append(" ws \":\" ws ");
-                            vertex_rules[current_idx].append(type);
-                            vertex_rules[current_idx].append(" )* )? ");
+                            vertex_rules[active_slot].append(" ( ");
+                            vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[active_slot].append(" ws \":\" ws ");
+                            vertex_rules[active_slot].append(type);
+                            vertex_rules[active_slot].append(" ( ws \",\" ws ");
+                            vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
+                            vertex_rules[active_slot].append(" ws \":\" ws ");
+                            vertex_rules[active_slot].append(type);
+                            vertex_rules[active_slot].append(" )* )? ");
                             // vertex_rules[pattern_key_idx].append_pattern_key_ref(pattern_key_idx);
                             // vertex_rules[pattern_key_idx].append(" ::= ");
                             vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
@@ -1483,38 +1482,38 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         visited[v]=true;
                     }
                     else if(u_obj.obj_type==JSON_OBJECT && (v_obj.obj_type==JSON_STRING || v_obj.obj_type==JSON_NUMBER || v_obj.obj_type==JSON_BOOLEAN || v_obj.obj_type==JSON_NULL)){
-                        vertex_rules[current_idx].append(" \"");
-                        vertex_rules[current_idx].append(getPrimitiveName(v_obj.obj_type));
-                        vertex_rules[current_idx].append("\"");
+                        vertex_rules[active_slot].append(" \"");
+                        vertex_rules[active_slot].append(getPrimitiveName(v_obj.obj_type));
+                        vertex_rules[active_slot].append("\"");
                         visited[v]=true;
                     // } else if (v_obj.is_choice_child) {
-                    //     if (state.current_edge_idx > offset_edge_idx) vertex_rules[current_idx].append(" ||| ");
-                    //     vertex_rules[current_idx].append(v_obj.key);
+                    //     if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(" ||| ");
+                    //     vertex_rules[active_slot].append(v_obj.key);
                     //     if(v_obj.key.empty()){
-                    //         vertex_rules[current_idx].append("-branch-");
-                    //         emit_size_t_as_string(vertex_rules[current_idx], v);
-                    //         vertex_rules[current_idx].append("-rule");
+                    //         vertex_rules[active_slot].append("-branch-");
+                    //         emit_size_t_as_string(vertex_rules[active_slot], v);
+                    //         vertex_rules[active_slot].append("-rule");
                     //     }
                     } else if(child_counts[u]>0){
-                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[current_idx].append(" ws \",\" ws ");
+                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(" ws \",\" ws ");
                         // Emit normal sequential keys and reference links...
-                        vertex_rules[current_idx].append(" ws ");
-                        vertex_rules[current_idx].append(v_obj.key);
+                        vertex_rules[active_slot].append(" ws ");
+                        vertex_rules[active_slot].append(v_obj.key);
                         if(v_obj.key.empty()){
                             if(rootType==u8"array"){
                                 size_t items_idx = (MaxNodes * 2) + next_edge;
-                                vertex_rules[current_idx].append("item-block-");
-                                vertex_rules[current_idx].append_int(items_idx);
-                                // vertex_rules[current_idx].append("-rule");
+                                vertex_rules[active_slot].append("item-block-");
+                                vertex_rules[active_slot].append_int(items_idx);
+                                // vertex_rules[active_slot].append("-rule");
                             }
                             else{
-                                vertex_rules[current_idx].append("branch-");
-                                vertex_rules[current_idx].append_int(v);
+                                vertex_rules[active_slot].append("branch-");
+                                vertex_rules[active_slot].append_int(v);
                             }
                         }
                         else{
-                        //   vertex_rules[current_idx].append_property_assignment(v_obj.key);
-                           //vertex_rules[current_idx].append(v_obj.value);
+                        //   vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                           //vertex_rules[active_slot].append(v_obj.value);
                         }
 
                     }
@@ -1531,9 +1530,11 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     // 3. Close rule on exit
                     if(child_counts[u]>0){
                         if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"object")
-                        vertex_rules[u].append(" ws \"}\" ws ");
-                        else if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"array")
-                        vertex_rules[u].append(" ws \"]\" ws ");
+                            vertex_rules[active_slot].append(" ws \"}\" ws ");
+                        else if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"array"){
+                            vertex_rules[active_slot].append(" ws \"]\" ws ");
+                            //current_idx = u;
+                        }
                     }
                     visited[u] = true;
                     if(highest_vertex_id<=u)highest_vertex_id=u+1;
@@ -1546,7 +1547,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         highest_vertex_id++;
                     }
                     if(highest_vertex_id<vertices.size()-1){
-                        traversal_stack.push(DFSState{highest_vertex_id, 0, current_idx});
+                        traversal_stack.push(DFSState{highest_vertex_id, 0, u+1});
                         offset_edge_idx=0;
                     }
                 }
@@ -1781,32 +1782,6 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
         };
 
         template<size_t VCapacity, size_t ECapacity>
-        constexpr std::u8string_view findDefault(const size_t u, std::array<size_t, VCapacity>& child_counts,
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
-            const std::array<size_t, VCapacity>& edge_start_idx)
-        {
-            std::u8string_view defaultValue = u8"";
-            size_t current_edge_idx = 0;
-            while(current_edge_idx<child_counts[u]){
-                size_t inner_edge = edge_start_idx[u] + current_edge_idx;
-                size_t w = std::get<1>(edges[inner_edge]);
-                const auto& w_obj = std::get<1>(vertices[w]);
-                if(defaultValue.empty() && (w_obj.key == u8"default" || std::get<2>(edges[inner_edge])==EDGE_KIND_DEFAULT)){
-                    defaultValue=w_obj.value;
-                    if(w_obj.obj_type==JSON_ARRAY){
-                        size_t inner_w_edge = edge_start_idx[w];
-                        size_t x = std::get<1>(edges[inner_w_edge]);
-                        const auto& x_obj = std::get<1>(vertices[x]);
-                        defaultValue=x_obj.value;
-                    }
-                }
-                current_edge_idx++;
-            }
-            return defaultValue;
-        };
-
-        template<size_t VCapacity, size_t ECapacity>
         constexpr std::u8string_view findItems(const size_t u, std::array<size_t, VCapacity>& child_counts,
             const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
             const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
@@ -1937,7 +1912,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                                         : ref_path.substr(last_slash + 1);
 
             // Scan vertices to find the matching definition anchor node
-            for (size_t i = 0; i < vertices.size(); ++i) {
+            for (size_t i = 0; i < vertices.size(); i++) {
                 const auto& obj = std::get<1>(vertices[i]);
                 if (obj.key == target_key) {
                     return obj.id; // Return matching vertex index
