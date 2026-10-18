@@ -603,6 +603,31 @@ TEST_CASE("GBNF: array of objects"){
     CHECK(validate_gbnf(gbnfView, R"([{"id": "doe2024optics"}, {"type": "article-journal"}])"));
 }
 
+TEST_CASE("GBNF: Schema Internal examples Skipping") {
+    static constexpr std::u8string_view sample_schema = u8R"({
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "integer",
+                "examples": [101, 204, 509]
+            }
+        },
+        "required": ["user_id"]
+    })";
+
+    sylvanmats::metaphrase::GBackusNaurFormation<sample_schema.size()> gBackusNaurFormation{};
+    constexpr auto gbnf = gBackusNaurFormation(sample_schema);
+    std::string_view gbnfView = gbnf.view();
+
+    // 2. Ensure it strictly matches any integer, not just the examples
+    CHECK(validate_gbnf(gbnfView, R"({"user_id": 101})"));
+    CHECK(validate_gbnf(gbnfView, R"({"user_id": 9999})")); // Should pass!
+
+    // 3. Confirm the text "examples" or the literal numbers never leaked into the grammar
+    CHECK(gbnfView.find("examples") == std::string_view::npos);
+    CHECK(gbnfView.find("9999") == std::string_view::npos);
+}
+
 TEST_CASE("test meta of typing") {
   std::string jsonContent=R"({
   "name": "winnow-mr",

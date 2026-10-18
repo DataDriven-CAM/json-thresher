@@ -715,8 +715,82 @@ struct fixed_accumulator {
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
-                        else if (current_key == u8"$schema" || current_key == u8"$id" || current_key == u8"$comment" || current_key == u8"title" || current_key == u8"description" || current_key == u8"tsType") {
+                        if (edge_kind!=EDGE_KIND_PROPERTIES && (current_key == u8"$schema" || current_key == u8"$id" || current_key == u8"$comment" || current_key == u8"title" || current_key == u8"description"
+                              || current_key == u8"tsType" || current_key == u8"examples" || current_key == u8"vocabulary")) {
                             cursor++;
+                            if (current_key == u8"examples" || current_key == u8"default") {
+                                gbnfAcc.append(u8"# Skip keyword branch: ");
+                                gbnfAcc.append(current_key);
+                                gbnfAcc.append(u8" ");
+                                gbnfAcc.append_int(cursor);
+                                // 1. Skip past the colon and any leading formatting whitespace
+                                while (cursor < jsonBuffer.size() && 
+                                    (jsonBuffer[cursor] == ':' || jsonBuffer[cursor] == ' ' || 
+                                    jsonBuffer[cursor] == '\t' || jsonBuffer[cursor] == '\n' || jsonBuffer[cursor] == '\r')) {
+                                    cursor++;
+                                }
+
+                                if (cursor >= jsonBuffer.size()) [[unlikely]] continue;
+
+                                // 2. Identify if the value is a compound block or a raw primitive
+                                const char head = static_cast<char>(jsonBuffer[cursor]);
+                                
+                                if (head == '[' || head == '{') {
+                                    // --- CASE A: COMPOUND CONTAINERS (Your existing depth loop) ---
+                                    size_t depth = 0;
+                                    while (cursor < jsonBuffer.size()) {
+                                        const char current = static_cast<char>(jsonBuffer[cursor]);
+                                        
+                                        if (current == '[' || current == '{') {
+                                            depth++;
+                                        } else if (current == ']' || current == '}') {
+                                            depth--;
+                                        }
+                                        
+                                        cursor++; // Move cursor forward
+                                        
+                                        if (depth == 0) {
+                                            break; // Fully balanced container scope cleared!
+                                        }
+                                    }
+                                } else {
+                                    // --- CASE B: LOOSE PRIMITIVES (Numbers, Strings, Booleans, Nulls) ---
+                                    bool in_string = (head == '"');
+                                    if (in_string) {
+                                        cursor++; // Step past the opening quote
+                                    }
+
+                                    while (cursor < jsonBuffer.size()) {
+                                        const char current = static_cast<char>(jsonBuffer[cursor]);
+
+                                        if (in_string) {
+                                            // Catch string escape sequences so we don't accidentally trip on \"
+                                            if (current == '\\' && cursor + 1 < jsonBuffer.size()) {
+                                                cursor += 2;
+                                                continue;
+                                            }
+                                            if (current == '"') {
+                                                cursor++; // Consume the closing quote
+                                                break;    // Pure string primitive successfully skipped!
+                                            }
+                                        } else {
+                                            // For raw numbers, booleans, and nulls, any structural structural delimiter 
+                                            // tells us the primitive value token stream has officially completed.
+                                            if (current == ',' || current == '}' || current == ']' || 
+                                                current == ' ' || current == '\t' || current == '\n' || current == '\r') {
+                                                // NOTE: Do NOT consume the structural token itself! 
+                                                // Let your parent parsing frame process the comma or brace.
+                                                break; 
+                                            }
+                                        }
+                                        cursor++;
+                                    }
+                                }
+                                gbnfAcc.append(" ");
+                                gbnfAcc.append_int(cursor);
+                                gbnfAcc.append("\n");
+                                continue; // Safely jump directly to your next valid schema property key!
+                            }
                             continue;
                         }
                         if(current_key==u8"$ref"){
@@ -931,9 +1005,6 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             traversal_stack.push(DFSState{0, 0, 0});
             visited[0] = true;
 
-            std::array<size_t, MaxNodes> printed_fields{};
-            printed_fields.fill(0);
-            
             size_t offset_edge_idx=0;
             size_t highest_vertex_id=0;
             while (!traversal_stack.empty()) {
@@ -941,7 +1012,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 size_t u = state.vertex_id;
                 const auto& u_obj = std::get<1>(vertices[u]);
                 size_t active_slot = state.target_rule_slot;
-                size_t current_idx = u+1;
+                size_t current_idx = active_slot;
 
                 if(u_obj.obj_type==JSON_OBJECT && u==0 && child_counts[u]==1 && std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key==u8"type"){
                     vertex_rules[active_slot].append("\"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
@@ -980,6 +1051,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             size_t next_edge = edge_start_idx[u] + 0;
                             size_t v = std::get<1>(edges[next_edge]);
                             const auto& v_obj = std::get<1>(vertices[v]);
+                            if(!visited[v]){
                             current_idx = (MaxNodes * 2) + next_edge;
                             vertex_rules[active_slot].append(" item-block-");
                             vertex_rules[active_slot].append_int(current_idx);
@@ -991,14 +1063,16 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             // vertex_rules[items_idx].append(" ::= ");
                             // traversal_stack.push(DFSState{v, 0, current_idx});
                             // offset_edge_idx=0;
-                            // continue;
+                            // visited[v]=true;
+                            //continue;
+                            active_slot=current_idx;
+                            vertex_rules[active_slot].append("# start item array");
+                            vertex_rules[active_slot].append_int(current_idx);
+                            vertex_rules[active_slot].append(" ");
+                            vertex_rules[active_slot].append_int(child_counts[u]);
+                            vertex_rules[active_slot].append("\n");
+                            }
                         }
-                    }
-                    if(std::get<2>(edges[edge_start_idx[u]]) == EDGE_KIND_DEFINITIONS){
-                        vertex_rules[active_slot].append("# hit definitions edges");
-                        vertex_rules[active_slot].append_int(std::get<1>(edges[edge_start_idx[u]]));
-                        vertex_rules[active_slot].append("\n");
-                        rule_symbol_names[std::get<1>(edges[edge_start_idx[u]])] = std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key;
                     }
                 }
 
@@ -1030,6 +1104,19 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
                 bool is_first_field = true;
 
+                if(!rootItems.empty()){
+                    vertex_rules[active_slot].append("# actual_prop_count ");
+                    vertex_rules[active_slot].append_int(actual_prop_count);
+                    vertex_rules[active_slot].append(" ");
+                    vertex_rules[active_slot].append(rootItems);
+                    vertex_rules[active_slot].append(" ");
+                    vertex_rules[active_slot].append(rootType);
+                    vertex_rules[active_slot].append(" ");
+                    vertex_rules[active_slot].append(u_obj.key);
+                    vertex_rules[active_slot].append(" ");
+                    vertex_rules[active_slot].append_int(child_counts[u]);
+                    vertex_rules[active_slot].append("\n");
+                }
                 for (size_t i = 0; i < actual_prop_count; ++i) {
                     const auto& entry = prop_pipeline[i];
                     auto v = entry.v_node;
@@ -1071,7 +1158,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         findEnumerationArray(v, child_counts, vertices, edges, edge_start_idx, enumerated_array);
                         fixed_stack<std::u8string_view, 128> prefix_items_array;
                         findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
-                        size_t synthetic_idx = MaxNodes + entry.edge_idx;
+                        size_t synthetic_idx = (rootItems.empty())? MaxNodes + entry.edge_idx : active_slot;
                         if(w_obj.resolved_target_idx>0){
                             if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
@@ -1347,6 +1434,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     else if(v_obj.resolved_target_idx>0){
                         size_t r=v_obj.resolved_target_idx;
                         const auto& r_obj=std::get<1>(vertices[r]);
+                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
                         vertex_rules[active_slot].append_property_assignment(v_obj.key);
                         vertex_rules[active_slot].append(r_obj.key);
                         vertex_rules[active_slot].append(" ws ");
@@ -1354,20 +1442,20 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         visited[v]=true;
 
                     }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
-                        // vertex_rules[active_slot].append("\n# definitions syntax sugar\n");
-                        // rule_symbol_names[u] = u_obj.key;
-                        rule_symbol_names[std::get<1>(edges[next_edge])] = std::get<1>(vertices[v_obj.resolved_target_idx]).key;
-                        visited[v]=true;
-                    }
-                    else if(v_obj.resolved_target_idx>0){
-                        // vertex_rules[active_slot].append("\n# reference syntax sugar\n");
-                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
-                        vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                        vertex_rules[active_slot].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
-                        visited[v]=true;
-                        rule_symbol_names[v_obj.resolved_target_idx]=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
-                    }
+                    // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
+                    //     // vertex_rules[active_slot].append("\n# definitions syntax sugar\n");
+                    //     // rule_symbol_names[u] = u_obj.key;
+                    //     rule_symbol_names[std::get<1>(edges[next_edge])] = std::get<1>(vertices[v_obj.resolved_target_idx]).key;
+                    //     visited[v]=true;
+                    // }
+                    // else if(v_obj.resolved_target_idx>0){
+                    //     // vertex_rules[active_slot].append("\n# reference syntax sugar\n");
+                    //     if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
+                    //     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                    //     vertex_rules[active_slot].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
+                    //     visited[v]=true;
+                    //     rule_symbol_names[v_obj.resolved_target_idx]=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
+                    // }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED || std::get<2>(edges[next_edge]) == EDGE_KIND_REF || std::get<2>(edges[next_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
                         visited[v]=true;
 
@@ -1416,19 +1504,19 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         //visited[v]=true;
 
                     }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS){
-                        // std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
-                        // if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
-                        // if(type==u8"object")vertex_rules[active_slot].append("{ ");
-                        // else if(type==u8"array")vertex_rules[active_slot].append("[ ");
+                    // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS){
+                    //     // std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
+                    //     // if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
+                    //     // if(type==u8"object")vertex_rules[active_slot].append("{ ");
+                    //     // else if(type==u8"array")vertex_rules[active_slot].append("[ ");
 
-                        // if(type==u8"object")vertex_rules[active_slot].append("} ");
-                        // else if(type==u8"array")vertex_rules[active_slot].append("] ");
-                        current_idx = MaxNodes * 2 + next_edge;
-                        visited[v]=true;
-                    }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
-                    }
+                    //     // if(type==u8"object")vertex_rules[active_slot].append("} ");
+                    //     // else if(type==u8"array")vertex_rules[active_slot].append("] ");
+                    //     current_idx = MaxNodes * 2 + next_edge;
+                    //     visited[v]=true;
+                    // }
+                    // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
+                    // }
                     else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PATTERN_PROPERTIES && v_obj.resolved_target_idx==0){
                         size_t inner_edge = edge_start_idx[v] + 0;
                         size_t w = std::get<1>(edges[inner_edge]);
@@ -1479,21 +1567,13 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     }
                     else if(u_obj.obj_type==JSON_OBJECT && v_obj.key==u8"type"){
                         offset_edge_idx++;
-                        visited[v]=true;
+                        // visited[v]=true;
                     }
                     else if(u_obj.obj_type==JSON_OBJECT && (v_obj.obj_type==JSON_STRING || v_obj.obj_type==JSON_NUMBER || v_obj.obj_type==JSON_BOOLEAN || v_obj.obj_type==JSON_NULL)){
                         vertex_rules[active_slot].append(" \"");
                         vertex_rules[active_slot].append(getPrimitiveName(v_obj.obj_type));
                         vertex_rules[active_slot].append("\"");
                         visited[v]=true;
-                    // } else if (v_obj.is_choice_child) {
-                    //     if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(" ||| ");
-                    //     vertex_rules[active_slot].append(v_obj.key);
-                    //     if(v_obj.key.empty()){
-                    //         vertex_rules[active_slot].append("-branch-");
-                    //         emit_size_t_as_string(vertex_rules[active_slot], v);
-                    //         vertex_rules[active_slot].append("-rule");
-                    //     }
                     } else if(child_counts[u]>0){
                         if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(" ws \",\" ws ");
                         // Emit normal sequential keys and reference links...
@@ -1515,9 +1595,21 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         //   vertex_rules[active_slot].append_property_assignment(v_obj.key);
                            //vertex_rules[active_slot].append(v_obj.value);
                         }
-
+                        if(!rootItems.empty()){
+                            vertex_rules[active_slot].append("# last else");
+                            vertex_rules[active_slot].append(v_obj.key);
+                            vertex_rules[active_slot].append(" = ");
+                            vertex_rules[active_slot].append(v_obj.value);
+                            vertex_rules[active_slot].append("\n");
+                        }
                     }
-                    
+                    if(!rootItems.empty()){
+                        vertex_rules[active_slot].append("# visited? ");
+                        vertex_rules[active_slot].append(v_obj.key);
+                        vertex_rules[active_slot].append(" visited[v] ");
+                        vertex_rules[active_slot].append_int(visited[v]);
+                        vertex_rules[active_slot].append("\n");
+                    }
                     if (!visited[v]) {
                         visited[v] = true;
                         if(v_obj.obj_type!=JSON_STRING && v_obj.obj_type!=JSON_NUMBER && v_obj.obj_type!=JSON_BOOLEAN && v_obj.obj_type!=JSON_NULL){
@@ -1533,7 +1625,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             vertex_rules[active_slot].append(" ws \"}\" ws ");
                         else if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"array"){
                             vertex_rules[active_slot].append(" ws \"]\" ws ");
-                            //current_idx = u;
+                            if(!rootItems.empty()){
+                                current_idx = u;
+                            }
                         }
                     }
                     visited[u] = true;
@@ -1585,7 +1679,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             if(key == u8"$anchor") throw "JSON Schema keyword not implemented: $anchor";
             if(key == u8"$dynamicAnchor") throw "JSON Schema keyword not implemented: $dynamicAnchor";
             if(key == u8"$dynamicRef") throw "JSON Schema keyword not implemented: $dynamicRef";
-            if(key == u8"$vocabulary") throw "JSON Schema keyword not implemented: $vocabulary";
+            if(key == u8"$vocabulary") return true;
             if(key == u8"$comment") return true;
             if(key == u8"$defs") return true;
             if(key == u8"definitions") return true;
@@ -1595,9 +1689,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             if(key == u8"deprecated") throw "JSON Schema keyword not implemented: deprecated";
             if(key == u8"readOnly") throw "JSON Schema keyword not implemented: readOnly";
             if(key == u8"writeOnly") throw "JSON Schema keyword not implemented: writeOnly";
-            if(key == u8"examples") throw "JSON Schema keyword not implemented: examples";
+            if(key == u8"examples") return true;
             if(key == u8"type") return true;
-            if(key == u8"enum") throw "JSON Schema keyword not implemented: enum";
+            if(key == u8"enum") return true;
             if(key == u8"const") return true;
             if(key == u8"multipleOf") throw "JSON Schema keyword not implemented: multipleOf";
             if(key == u8"maximum") throw "JSON Schema keyword not implemented: maximum";
