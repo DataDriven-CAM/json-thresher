@@ -24,7 +24,7 @@ build/src/format-test.o: src/format-test.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/format-test.o src/format-test.cpp
 
-build/src/test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fcontracts -pthread -std=c++26 -I../include -I$(MODULE_DIRECTORY)/doctest -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include -I$(MODULE_DIRECTORY)/fmt/dist/include -MMD
+build/src/test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fcontracts -freflection -pthread -std=c++26 -I../include -I$(MODULE_DIRECTORY)/doctest -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include -I$(MODULE_DIRECTORY)/fmt/dist/include -MMD
 build/src/test.o: src/test.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/test.o src/test.cpp 

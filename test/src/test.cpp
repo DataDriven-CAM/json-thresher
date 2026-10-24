@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <fstream>
 #include <ranges>
+#include <meta>
 #include <deque>
 #include <chrono>
 
@@ -190,118 +191,118 @@ TEST_CASE("test periodic table json") {
     
 }
 
-TEST_CASE("test create json" * doctest::skip()) {
-//     sylvanmats::io::json::Binder jsonBinder;
-//     sylvanmats::io::json::Path jp;
-//     jsonBinder(jp, "8DR", sylvanmats::io::json::object());
-//     CHECK_EQ(jsonBinder.countObjects(), 2);
-//     std::cout<<jsonBinder<<std::endl;
-//     jp["8DR"];
-//     jsonBinder(jp, "start", 100);
-//     CHECK_EQ(jsonBinder.countObjects(), 2);
-// //    jsonBinder.display();
-//     std::cout<<jsonBinder<<std::endl;
-// //    jsonBinder(jp, "end", 200);
-// //    std::cout<<jsonBinder<<std::endl;
-//     sylvanmats::io::json::Path jp2;
-//     jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
-//     CHECK_EQ(jsonBinder.countObjects(), 3);
-// //    jsonBinder.display();
-// //    std::cout<<jsonBinder<<std::endl;
-//     jp2["CGU"];
-//     jsonBinder(jp2, "start", 300);
-//     std::cout<<"check: "<<jsonBinder<<std::endl;
-//     jsonBinder(jp2, "end", 400);
-//     jsonBinder(jp, "end", 200);
-//     sylvanmats::io::json::Path jp3;
-//     jsonBinder(jp3, "000", sylvanmats::io::json::object());
-// //    std::cout<<jsonBinder<<std::endl;
-//     jp3["000"];
-//     jsonBinder(jp3, "start", 1);
-// //    jsonBinder.display();
-// //    std::cout<<"check: "<<jsonBinder<<std::endl;
-//     jsonBinder(jp3, "end", 50);
-//     sylvanmats::io::json::Path jp4;
-//     jsonBinder(jp4, "001", sylvanmats::io::json::object());
-// //    std::cout<<jsonBinder<<std::endl;
-//     jp4["001"];
-//     jsonBinder(jp4, "start", 51);
-// //    jsonBinder.display();
-//     std::cout<<"check: "<<jsonBinder<<std::endl;
-//     jsonBinder(jp4, "end", 99);
-// ////    //jsonBinder.display();
-//     std::cout<<jsonBinder<<std::endl;
-//     CHECK_EQ(jsonBinder.countObjects(), 5);
-//     sylvanmats::io::json::Path jp5=Root();
-// ////    jp3["8DR"];
-// ////    std::cout<<"jp3 "<<jp3<<std::endl;
-//     //remove 8DR
-//     jsonBinder(jp5, "8DR");
-//     std::cout<<jsonBinder<<std::endl;
-//     CHECK_EQ(jsonBinder.countObjects(), 4);
-//     sylvanmats::io::json::Path jp6;
-//     jsonBinder(jp6, "8DR", sylvanmats::io::json::object());
-// //    std::cout<<jsonBinder<<std::endl;
-//     jp6["8DR"];
-//     jsonBinder(jp6, "start", 100u);
-// //    jsonBinder.display();
-//     unsigned long p=200u;
-//     sylvanmats::io::json::JsonValue pp=p;
-//     jsonBinder(jp6, "end", pp);
-//     std::cout<<std::type_index(pp.type()).name()<<" check: "<<jsonBinder<<std::endl;
+TEST_CASE("test create json" *doctest::skip()) {
+    sylvanmats::io::json::Binder jsonBinder;
+    sylvanmats::io::json::Path jp;
+    jsonBinder(jp, "8DR", sylvanmats::io::json::object());
+    CHECK_EQ(jsonBinder.countObjects(), 2);
+    std::cout<<jsonBinder<<std::endl;
+    jp["8DR"];
+    jsonBinder(jp, "start", 100);
+    CHECK_EQ(jsonBinder.countObjects(), 2);
+//    jsonBinder.display();
+    std::cout<<jsonBinder<<std::endl;
+//    jsonBinder(jp, "end", 200);
+//    std::cout<<jsonBinder<<std::endl;
+    sylvanmats::io::json::Path jp2;
+    jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
+    CHECK_EQ(jsonBinder.countObjects(), 3);
+//    jsonBinder.display();
+//    std::cout<<jsonBinder<<std::endl;
+    jp2["CGU"];
+    jsonBinder(jp2, "start", 300);
+    std::cout<<"check: "<<jsonBinder<<std::endl;
+    jsonBinder(jp2, "end", 400);
+    jsonBinder(jp, "end", 200);
+    sylvanmats::io::json::Path jp3;
+    jsonBinder(jp3, "000", sylvanmats::io::json::object());
+//    std::cout<<jsonBinder<<std::endl;
+    jp3["000"];
+    jsonBinder(jp3, "start", 1);
+//    jsonBinder.display();
+//    std::cout<<"check: "<<jsonBinder<<std::endl;
+    jsonBinder(jp3, "end", 50);
+    sylvanmats::io::json::Path jp4;
+    jsonBinder(jp4, "001", sylvanmats::io::json::object());
+//    std::cout<<jsonBinder<<std::endl;
+    jp4["001"];
+    jsonBinder(jp4, "start", 51);
+//    jsonBinder.display();
+    std::cout<<"check: "<<jsonBinder<<std::endl;
+    jsonBinder(jp4, "end", 99);
+////    //jsonBinder.display();
+    std::cout<<jsonBinder<<std::endl;
+    CHECK_EQ(jsonBinder.countObjects(), 5);
+    sylvanmats::io::json::Path jp5=Root();
+////    jp3["8DR"];
+////    std::cout<<"jp3 "<<jp3<<std::endl;
+    //remove 8DR
+    jsonBinder(jp5, "8DR");
+    std::cout<<jsonBinder<<std::endl;
+    CHECK_EQ(jsonBinder.countObjects(), 4);
+    sylvanmats::io::json::Path jp6;
+    jsonBinder(jp6, "8DR", sylvanmats::io::json::object());
+//    std::cout<<jsonBinder<<std::endl;
+    jp6["8DR"];
+    jsonBinder(jp6, "start", 100u);
+//    jsonBinder.display();
+    unsigned long p=200u;
+    sylvanmats::io::json::JsonValue pp=p;
+    jsonBinder(jp6, "end", pp);
+    std::cout<<sylvanmats::io::json::get_active_type_name(pp)<<" check: "<<jsonBinder<<std::endl;
 }
 
-TEST_CASE("test create series json" * doctest::skip()){
-    // sylvanmats::io::json::Binder jsonBinder;
-    // sylvanmats::io::json::Path jp;
-    // jsonBinder(jp, "8DR", sylvanmats::io::json::object());
-    // jp["8DR"];
-    // size_t count=0;
+TEST_CASE("test create series json"){
+    sylvanmats::io::json::Binder jsonBinder;
+    sylvanmats::io::json::Path jp;
+    jsonBinder(jp, "8DR", sylvanmats::io::json::object());
+    jp["8DR"];
+    size_t count=0;
     // jsonBinder(jp, [&jp, &count]()->std::tuple<bool, std::string_view, const sylvanmats::io::json::JsonValue>{
     //     if(count==0){
     //         count++;
-    //         return std::make_tuple(false, "start", 100);
+    //         return std::make_tuple(false, "start", sylvanmats::io::json::JsonValue{100ul});
     //     }
-    //     return std::make_tuple(true, "end", 200);
+    //     return std::make_tuple(true, "end", sylvanmats::io::json::JsonValue{200ul});
     // });
-    // sylvanmats::io::json::Path jp2;
-    // jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
-    // jp2["CGU"];
-    // count=0;
+    sylvanmats::io::json::Path jp2;
+    jsonBinder(jp2, "CGU", sylvanmats::io::json::object());
+    jp2["CGU"];
+    count=0;
     // jsonBinder(jp2, [&jp2, &count]()->std::tuple<bool, std::string_view, const sylvanmats::io::json::JsonValue>{
     //     if(count==0){
     //         count++;
-    //         return std::make_tuple(false, "start", 300);
+    //         return std::make_tuple(false, "start", sylvanmats::io::json::JsonValue{300ul});
     //     }
-    //     return std::make_tuple(true, "end", 400);
+    //     return std::make_tuple(true, "end", sylvanmats::io::json::JsonValue{400ul});
     // });
-    // CHECK_EQ(jsonBinder.countObjects(), 3);
-    // CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 21);
-    // CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 20);
-    // //jsonBinder.display();
-    // std::cout<<jsonBinder<<std::endl;
-    // sylvanmats::io::json::Path jpName;
-    // jpName["8DR"]["start"]==100l;
-    // size_t val=0;
-    // jsonBinder(jpName, [&val](std::string_view key, const sylvanmats::io::json::JsonValue& v){
-    //     if(key.compare("end")==0){
-    //         if (auto pVal = std::get_if<long>(&v)) {
-    //             val=*pVal;
-    //         }
-    //     }
-    // });
-    // CHECK_EQ(val, 200);
-    // sylvanmats::io::json::Path jpName2;
-    // jpName2["CGU"]["start"]==300l;
-    // val=0;
-    // jsonBinder(jpName2, [&val](std::string_view key, const sylvanmats::io::json::JsonValue& v){
-    //     if(key.compare("end")==0){
-    //         if (auto pVal = std::get_if<long>(&v)) {
-    //             val=*pVal;
-    //         }
-    //     }
-    // });
-    // CHECK_EQ(val, 400);
+    CHECK_EQ(jsonBinder.countObjects(), 3);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 21);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 20);
+    //jsonBinder.display();
+    std::cout<<jsonBinder<<std::endl;
+    sylvanmats::io::json::Path jpName;
+    jpName["8DR"]["start"]==100l;
+    size_t val=0;
+    jsonBinder(jpName, [&val](std::string_view key, const sylvanmats::io::json::JsonValue& v){
+        if(key.compare("end")==0){
+            if (auto pVal = std::get_if<long>(&v)) {
+                val=*pVal;
+            }
+        }
+    });
+    CHECK_EQ(val, 200);
+    sylvanmats::io::json::Path jpName2;
+    jpName2["CGU"]["start"]==300l;
+    val=0;
+    jsonBinder(jpName2, [&val](std::string_view key, const sylvanmats::io::json::JsonValue& v){
+        if(key.compare("end")==0){
+            if (auto pVal = std::get_if<long>(&v)) {
+                val=*pVal;
+            }
+        }
+    });
+    CHECK_EQ(val, 400);
 }
 
 TEST_CASE("test reading package.json") {

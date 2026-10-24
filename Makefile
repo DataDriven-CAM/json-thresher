@@ -25,12 +25,12 @@ all: build/src/io/json/Path.o  build/src/io/json/Binder.o
 	$(CXX)  -shared $(LDFLAGS) -o $(libprefix)jsonthresher.$(ext) build/src/io/json/*.o 
 	$(AR) $(ARFLAGS) $(libprefix)jsonthresher.a build/src/io/json/*.o 
 
-build/src/io/json/Path.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fPIC -pthread -std=c++26 -I./include -Isrc -MMD
+build/src/io/json/Path.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fPIC  -fcontracts -freflection -pthread -std=c++26 -I./include -Isrc -MMD
 build/src/io/json/Path.o: src/io/json/Path.cpp 
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/io/json/Path.o src/io/json/Path.cpp
 	
-build/src/io/json/Binder.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fPIC -pthread -std=c++26 -I./include -Isrc -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include -I$(MODULE_DIRECTORY)/include -MMD
+build/src/io/json/Binder.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fPIC  -fcontracts -freflection -pthread -std=c++26 -I./include -Isrc -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include -I$(MODULE_DIRECTORY)/include -MMD
 build/src/io/json/Binder.o: src/io/json/Binder.cpp 
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/io/json/Binder.o src/io/json/Binder.cpp

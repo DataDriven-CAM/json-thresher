@@ -50,9 +50,27 @@ namespace sylvanmats::io::json{
         VALUE_NULL
     };
 
-using JsonValue = std::variant<std::monostate, std::valarray<double>, std::string_view, const char*, double, int, unsigned int, long, unsigned long, long long, bool>;
+using JsonValue = std::variant<std::monostate, std::valarray<double>, std::string_view, const char*, double, int, unsigned int, long, unsigned long, long long, bool, object, array>;
 
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+
+template <typename Variant, std::size_t... Is>
+constexpr auto get_variant_names_impl(std::index_sequence<Is...>) {
+    // Drop type_of completely; the reflection operator ^^ already returns the type handle
+    return std::array<std::string_view, sizeof...(Is)>{
+        std::meta::display_string_of( ^^std::variant_alternative_t<Is, Variant> )...
+    };
+}
+
+template <typename Variant>
+constexpr std::string_view get_active_type_name(const Variant& v) {
+    constexpr size_t size = std::variant_size_v<Variant>;
+    
+    // Generate the cache once at compile-time via an index sequence expansion
+    static constexpr auto type_names = get_variant_names_impl<Variant>(std::make_index_sequence<size>{});
+
+    return (v.index() < size) ? type_names[v.index()] : "unknown";
+}
 
 template <typename... Args>
 concept IsJsonKeyValuePair = requires {
@@ -540,6 +558,8 @@ concept IsJsonKeyValuePair = requires {
                 [&kv](unsigned long val)         { kv.append(std::to_string(val)); },
                 [&kv](long long val)             { kv.append(std::to_string(val)); },
                 [&kv](bool val)                  { (val)? kv.append("true") : kv.append("false"); },
+                [&kv](object val)                { kv.append("{\"object\":\"object\"}"); },
+                [&kv](array val)                 { kv.append("{\"array\":\"array\"}"); },
             }, value);
             return std::move(kv);
         }
