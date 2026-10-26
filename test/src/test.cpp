@@ -630,7 +630,7 @@ TEST_CASE("test array of doubles") {
     jp["data"]["*"]["structure"]["sites"]["*"]["xyz"];
     jsonBinder(jp, [&](const sylvanmats::io::json::JsonValue& v){
         if (auto pVal = std::get_if<std::valarray<double>>(&v)) {
-            std::cout<<"array"<<" "<<pVal->size()<<std::endl;
+            std::cout<<"valarray"<<" "<<pVal->size()<<std::endl;
         }
     });
     auto endTime = std::chrono::high_resolution_clock::now();

@@ -13,7 +13,9 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
-
+      with:
+        submodules: true # Automatically pulls Cairns and any other registered submodules
+        
     - name: Install Nightly GCC Snapshot
       run: |
         wget --quiet https://kayari.org/gcc-latest/gcc-latest.deb

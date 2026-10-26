@@ -76,7 +76,24 @@ For traversing an object with a child value pair "start": 1001,
     jpName["8DR"]["*"]["start"]==100l;
 ```
 
-Planning to add getting numerical arrays quickly in to usable c++ arrays. 
+For retrieving an array of doubles
+```cpp
+    sylvanmats::io::json::Binder jsonBinder;
+    jsonBinder(jsonContent);
+    CHECK_EQ(graph::num_vertices(jsonBinder.dagGraph), 102);
+    CHECK_EQ(graph::num_edges(jsonBinder.dagGraph), 101);
+    
+    sylvanmats::io::json::Path jp;
+    jp["data"]["*"]["structure"]["sites"]["*"]["xyz"];
+    jsonBinder(jp, [&](const sylvanmats::io::json::JsonValue& v){
+        if (auto pVal = std::get_if<std::valarray<double>>(&v)) {
+            std::cout<<"valarray"<<" "<<pVal->size()<<std::endl;
+        }
+    });
+```
+
+Planning to bring along the dimensions of the array for slicing.
+
 Planning faster creation portion of the API using format.
 
 ## Contact
