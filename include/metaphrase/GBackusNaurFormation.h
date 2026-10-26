@@ -23,17 +23,17 @@
 #include <format>
 #include <contracts>
 
-#include "metaphrase/fixed_string.h"
-#include "metaphrase/fixed_stack.h"
-#include "metaphrase/fixed_accumulator.h"
+#include "cairns/fixed_string.h"
+#include "cairns/fixed_stack.h"
+#include "cairns/fixed_accumulator.h"
 
 namespace sylvanmats::metaphrase{
 
     // Allocation-free rule generator using structural concatenation
-    template<fixed_string RuleName, fixed_string Body>
+    template<cairns::fixed_string RuleName, cairns::fixed_string Body>
     consteval auto make_gbnf_rule() {
-        constexpr auto sep = fixed_string(" ::= ");
-        constexpr auto nl  = fixed_string("\n");
+        constexpr auto sep = cairns::fixed_string(" ::= ");
+        constexpr auto nl  = cairns::fixed_string("\n");
         return RuleName + sep + Body + nl;
     }
 
@@ -181,11 +181,11 @@ namespace sylvanmats::metaphrase{
         GBackusNaurFormation& operator=(const GBackusNaurFormation& orig) = delete;
         GBackusNaurFormation& operator=(GBackusNaurFormation&& orig) = delete;
         ~GBackusNaurFormation() = default;
-        constexpr fixed_string<AccumulatorSize> operator ()(std::u8string_view jsonBuffer){
-            fixed_stack<std::tuple<size_t, jobject>, MaxNodes> vertices;
-            fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, MaxNodes*2> edges;
-            fixed_stack<size_t, 64> parentStack;
-            fixed_stack<RawEdge, MaxNodes*2> raw_edges;
+        constexpr cairns::fixed_string<AccumulatorSize> operator ()(std::u8string_view jsonBuffer){
+            cairns::fixed_stack<std::tuple<size_t, jobject>, MaxNodes> vertices;
+            cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, MaxNodes*2> edges;
+            cairns::fixed_stack<size_t, 64> parentStack;
+            cairns::fixed_stack<RawEdge, MaxNodes*2> raw_edges;
 
             std::array<size_t, MaxNodes> child_counts{};
             child_counts.fill(0);
@@ -197,7 +197,7 @@ namespace sylvanmats::metaphrase{
             bool hitColon=false;
             bool hitComma=false;
             bool firstObject=true;
-            fixed_accumulator<AccumulatorSize> gbnfAcc{};
+            cairns::fixed_accumulator<AccumulatorSize> gbnfAcc{};
             std::array<std::u8string_view, MaxNodes> rule_symbol_names{};
             while(cursor<jsonBuffer.size()){
                 while (cursor < jsonBuffer.size() && 
@@ -576,9 +576,9 @@ namespace sylvanmats::metaphrase{
                 sum += child_counts[i];
             }
 
-            std::array<fixed_accumulator<4096>, TotalRuleSlots> vertex_rules{};
+            std::array<cairns::fixed_accumulator<4096>, TotalRuleSlots> vertex_rules{};
             traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, rule_symbol_names, vertex_rules, tail_features);
-            // fixed_accumulator<65536> gbnfAcc{};
+            // cairns::fixed_accumulator<65536> gbnfAcc{};
             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
             gbnfAcc.append("# Generated automatically from source JSON Schema definitions\n\n");
 
@@ -655,22 +655,22 @@ object ::= "{" ws ( string ws ":" ws value ( ws "," ws string ws ":" ws value )*
 array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 )");
 
-            return fixed_string<AccumulatorSize>(gbnfAcc.data(), gbnfAcc.size());
+            return cairns::fixed_string<AccumulatorSize>(gbnfAcc.data(), gbnfAcc.size());
         }
 
     private:
         template<size_t VCapacity, size_t ECapacity>
         constexpr void traverse_gbnf_graph(
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
             std::array<size_t, VCapacity>& child_counts,
             std::array<std::u8string_view, MaxNodes>& rule_symbol_names,
-            std::array<fixed_accumulator<4096>, TotalRuleSlots>& vertex_rules, GBNFTailFeatures& tail_features
+            std::array<cairns::fixed_accumulator<4096>, TotalRuleSlots>& vertex_rules, GBNFTailFeatures& tail_features
         ) {
             if (vertices.size() <= 1) return;
             // 1. Explicit visitor stack replacing runtime/compiler call recursion
-            fixed_stack<DFSState, 128> traversal_stack;
+            cairns::fixed_stack<DFSState, 128> traversal_stack;
             
             // 2. Visited map to guard against recursive schema definitions ($ref cycles)
             std::array<bool, VCapacity> visited{};
@@ -751,7 +751,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     }
                 }
 
-                fixed_stack<std::u8string_view, 128> required_stack;
+                cairns::fixed_stack<std::u8string_view, 128> required_stack;
                 findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
                 std::array<property_sort_entry, 64> prop_pipeline{};
                 size_t actual_prop_count = 0;
@@ -816,7 +816,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
                     }
                     else if(std::get<2>(edges[entry.edge_idx]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
-                        // fixed_stack<std::u8string_view, 128> required_stack;
+                        // cairns::fixed_stack<std::u8string_view, 128> required_stack;
                         // findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
                         size_t inner_edge = edge_start_idx[v] + 0;
                         size_t w = std::get<1>(edges[inner_edge]);
@@ -829,9 +829,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         std::u8string_view defaultValue = find(u8"default", EDGE_KIND_DEFAULT, v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
                         std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
                         std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
-                        fixed_stack<std::u8string_view, 128> enumerated_array;
+                        cairns::fixed_stack<std::u8string_view, 128> enumerated_array;
                         findEnumerationArray(v, child_counts, vertices, edges, edge_start_idx, enumerated_array);
-                        fixed_stack<std::u8string_view, 128> prefix_items_array;
+                        cairns::fixed_stack<std::u8string_view, 128> prefix_items_array;
                         findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
                         size_t synthetic_idx = (rootItems.empty())? MaxNodes + entry.edge_idx : active_slot;
                         if(w_obj.resolved_target_idx>0){
@@ -1412,7 +1412,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
         }    
 
         template<size_t VCapacity>
-        constexpr bool hasParentalSyntax(const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, fixed_stack<size_t, 64>& parentStack){
+        constexpr bool hasParentalSyntax(const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, cairns::fixed_stack<size_t, 64>& parentStack){
             if(parentStack.size()>=1 && std::get<1>(vertices[parentStack.back()]).context==SCHEMA_CONTEXT::SCHEMA_MODE && getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST){
                 return true;
             }
@@ -1495,8 +1495,8 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
         template<size_t VCapacity, size_t ECapacity>
         constexpr std::u8string_view findType(const size_t u, std::array<size_t, VCapacity>& child_counts,
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx)
         {
             std::u8string_view type = u8"";
@@ -1521,8 +1521,8 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
         template<size_t VCapacity, size_t ECapacity>
         constexpr std::u8string_view find(std::u8string_view key, EDGE_KIND kind, const size_t u, std::array<size_t, VCapacity>& child_counts,
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx, std::array<std::u8string_view, MaxNodes>& rule_symbol_names)
         {
             std::u8string_view value = u8"";
@@ -1552,8 +1552,8 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
         template<size_t VCapacity, size_t ECapacity>
         constexpr std::u8string_view findItems(const size_t u, std::array<size_t, VCapacity>& child_counts,
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx, std::array<std::u8string_view, MaxNodes>& rule_symbol_names)
         {
             std::u8string_view items = u8"";
@@ -1578,8 +1578,8 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
         template<size_t VCapacity, size_t ECapacity>
         constexpr std::u8string_view findAdditionalProperties(const size_t u, std::array<size_t, VCapacity>& child_counts,
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx, std::array<std::u8string_view, MaxNodes>& rule_symbol_names)
         {
             std::u8string_view additionalProperties = u8"";
@@ -1604,9 +1604,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
         template<size_t VCapacity, size_t ECapacity>
         constexpr void findRequiredArray(const size_t u, std::array<size_t, VCapacity>& child_counts,
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
-            const std::array<size_t, VCapacity>& edge_start_idx, fixed_stack<std::u8string_view, 128>& required_array)
+            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const std::array<size_t, VCapacity>& edge_start_idx, cairns::fixed_stack<std::u8string_view, 128>& required_array)
         {
             size_t current_edge_idx = 0;
             while(current_edge_idx<child_counts[u]){
@@ -1622,9 +1622,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
         template<size_t VCapacity, size_t ECapacity>
         constexpr void findEnumerationArray(const size_t u, std::array<size_t, VCapacity>& child_counts,
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
-            const std::array<size_t, VCapacity>& edge_start_idx, fixed_stack<std::u8string_view, 128>& enumerated_array)
+            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const std::array<size_t, VCapacity>& edge_start_idx, cairns::fixed_stack<std::u8string_view, 128>& enumerated_array)
         {
             size_t current_edge_idx = 0;
             while(current_edge_idx<child_counts[u]){
@@ -1640,9 +1640,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
         template<size_t VCapacity, size_t ECapacity>
         constexpr void findPrefixItemsArray(const size_t u, std::array<size_t, VCapacity>& child_counts,
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
-            const std::array<size_t, VCapacity>& edge_start_idx, fixed_stack<std::u8string_view, 128>& prefix_items_array)
+            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+            const std::array<size_t, VCapacity>& edge_start_idx, cairns::fixed_stack<std::u8string_view, 128>& prefix_items_array)
         {
             size_t current_edge_idx = 0;
             while(current_edge_idx<child_counts[u]){
@@ -1665,7 +1665,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
         template<size_t VCapacity>
         constexpr size_t resolve_ref_pointer(
-            const fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
             std::u8string_view ref_path
         ) {
             // Stripping the leading #/ if present

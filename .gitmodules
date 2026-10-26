@@ -1,0 +1,3 @@
+[submodule "external/cairns"]
+	path = external/cairns
+	url = https://github.com/Sylvan-Materials/cairns.git

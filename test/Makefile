@@ -12,19 +12,19 @@ all: build/src/compile-time-test.o build/src/format-test.o build/src/test.o
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) build/src/*.o -o test  
 
-build/src/compile-time-test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fcontracts -freflection --embed-dir=../cpp_modules/json-graph-specification -pthread -std=c++26 -fconstexpr-ops-limit=134217728 -I../include -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include  -I$(MODULE_DIRECTORY)/urlcpp -I$(MODULE_DIRECTORY)/fmt/dist/include -I$(MODULE_DIRECTORY)/doctest  -MMD
+build/src/compile-time-test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fcontracts -freflection --embed-dir=../cpp_modules/json-graph-specification -pthread -std=c++26 -fconstexpr-ops-limit=134217728 -I../include -I../external/cairns/include -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include  -I$(MODULE_DIRECTORY)/urlcpp -I$(MODULE_DIRECTORY)/fmt/dist/include -I$(MODULE_DIRECTORY)/doctest  -MMD
 build/src/compile-time-test.o: LDFLAGS= -fcontracts 
 build/src/compile-time-test.o: src/compile-time-test.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/compile-time-test.o src/compile-time-test.cpp
 
-build/src/format-test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fcontracts -freflection -pthread -std=c++26 -fconstexpr-ops-limit=134217728 -I../include -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include  -I$(MODULE_DIRECTORY)/urlcpp -I$(MODULE_DIRECTORY)/fmt/dist/include -I$(MODULE_DIRECTORY)/doctest  -MMD
+build/src/format-test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fcontracts -freflection -pthread -std=c++26 -fconstexpr-ops-limit=134217728 -I../include -I../external/cairns/include -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include  -I$(MODULE_DIRECTORY)/urlcpp -I$(MODULE_DIRECTORY)/fmt/dist/include -I$(MODULE_DIRECTORY)/doctest  -MMD
 build/src/format-test.o: LDFLAGS= -fcontracts 
 build/src/format-test.o: src/format-test.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/format-test.o src/format-test.cpp
 
-build/src/test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fcontracts -freflection -pthread -std=c++26 -I../include -I$(MODULE_DIRECTORY)/doctest -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include -I$(MODULE_DIRECTORY)/fmt/dist/include -MMD
+build/src/test.o: CXXFLAGS= -DNDEBUG $(OPT_FLAGS) -fcontracts -freflection -pthread -std=c++26 -I../include -I../external/cairns/include -I$(MODULE_DIRECTORY)/doctest -I$(MODULE_DIRECTORY)/expected/include -I$(MODULE_DIRECTORY)/graph-v3/include -I$(MODULE_DIRECTORY)/fmt/dist/include -MMD
 build/src/test.o: src/test.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o build/src/test.o src/test.cpp 

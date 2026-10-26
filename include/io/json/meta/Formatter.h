@@ -4,9 +4,9 @@
 #include <string_view>
 #include <sstream>
 
-#include "metaphrase/fixed_string.h"
-#include "metaphrase/fixed_stack.h"
-#include "metaphrase/fixed_accumulator.h"
+#include "cairns/fixed_string.h"
+#include "cairns/fixed_stack.h"
+#include "cairns/fixed_accumulator.h"
 
 namespace sylvanmats::io::json::meta{
 
@@ -55,7 +55,7 @@ consteval std::size_t calculate_max_json_buffer_size(std::size_t indent_multipli
     return bytes_accumulator;
 }
     template<size_t N>
-    constexpr void transform_key_format(std::string_view source, ::sylvanmats::metaphrase::fixed_accumulator<N>& acc) {
+    constexpr void transform_key_format(std::string_view source, cairns::fixed_accumulator<N>& acc) {
 
         for (char c : source) {
             if (c == '-') {
@@ -91,8 +91,8 @@ constexpr auto transform_key_format(std::string_view source) {
         Formatter& operator=(const Formatter& orig) = delete;
         Formatter& operator=(Formatter&& orig) = delete;
         ~Formatter() = default;
-        constexpr ::sylvanmats::metaphrase::fixed_accumulator<RequiredCapacity> operator ()(T value, int depth = 0){
-            ::sylvanmats::metaphrase::fixed_accumulator<RequiredCapacity> acc;
+        constexpr cairns::fixed_accumulator<RequiredCapacity> operator ()(T value, int depth = 0){
+            cairns::fixed_accumulator<RequiredCapacity> acc;
             std::string indent(depth * 4, ' ');
             if constexpr (std::meta::is_type(^^T) && std::is_class_v<typename [: ^^T :]>) {
                 acc.append("{{\n");
@@ -153,7 +153,7 @@ constexpr auto transform_key_format(std::string_view source) {
                 // 2. Pre-bake the transformed schema naming labels at compile time
                 constexpr auto raw_name = std::meta::identifier_of(field);
                 static constexpr auto transformed_name = [&raw_name]() {
-                    ::sylvanmats::metaphrase::fixed_accumulator<RequiredCapacity> acc;
+                    cairns::fixed_accumulator<RequiredCapacity> acc;
                     transform_key_format(raw_name, acc);
                     return std::string_view(std::define_static_string(acc.view())); // Baked inside .rodata
                 }();
@@ -210,7 +210,7 @@ constexpr auto transform_key_format(std::string_view source) {
             constexpr auto raw_name = std::meta::identifier_of(field);
             static constexpr auto transformed_name = []<auto F>() {
                 constexpr auto r_name = std::meta::identifier_of(F);
-                ::sylvanmats::metaphrase::fixed_accumulator<RequiredCapacity> acc;
+                cairns::fixed_accumulator<RequiredCapacity> acc;
                 transform_key_format(r_name, acc);
                 return std::string_view(std::define_static_string(acc.view()));
             }.template operator()<field>();
