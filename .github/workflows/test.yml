@@ -49,11 +49,15 @@ jobs:
 
     - name: Install Project Dependencies
       run: |
-        # Force git to recursively populate the external directory paths
-        git submodule update --init --recursive
+        # 1. Initialize the local .git/config mapping using your registered .gitmodules profile
+        git submodule init external/cairns
+        
+        # 2. Force checkout the specific tracking commit hash for the repository
+        git submodule update --recursive
         
         # Verify the file is actually there now!
         ls -la ./external/cairns/include/cairns/
+
         # Resolves all dependencies specified in the root package.json
         cnpm install
         ls -lastr ./cpp_modules/*
