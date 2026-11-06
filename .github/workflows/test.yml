@@ -14,7 +14,7 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
       with:
-        submodules: true # Automatically pulls Cairns and any other registered submodules
+        submodules: 'recursive' # Automatically pulls Cairns and any other registered submodules
         
     - name: Install Nightly GCC Snapshot
       run: |
@@ -49,13 +49,9 @@ jobs:
 
     - name: Install Project Dependencies
       run: |
-        # 1. Initialize the local .git/config mapping using your registered .gitmodules profile
-        git submodule init external/cairns
-        
-        # 2. Force checkout the specific tracking commit hash for the repository
-        git submodule update --recursive
-        
         # Verify the file is actually there now!
+        pwd
+        ls -la ./external
         ls -la ./external/cairns/include/cairns/
 
         # Resolves all dependencies specified in the root package.json
