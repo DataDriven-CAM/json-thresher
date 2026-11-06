@@ -49,6 +49,11 @@ jobs:
 
     - name: Install Project Dependencies
       run: |
+        # Force git to recursively populate the external directory paths
+        git submodule update --init --recursive
+        
+        # Verify the file is actually there now!
+        ls -la ./external/cairns/include/cairns/
         # Resolves all dependencies specified in the root package.json
         cnpm install
         ls -lastr ./cpp_modules/*
