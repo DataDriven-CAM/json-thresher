@@ -24,6 +24,7 @@
 #include <contracts>
 
 #include "cairns/fixed_string.h"
+#include "cairns/fixed_map.h"
 #include "cairns/fixed_stack.h"
 #include "cairns/fixed_accumulator.h"
 
@@ -142,8 +143,6 @@ namespace sylvanmats::metaphrase{
         std::u8string_view key{};
         std::u8string_view value{};
         size_t depth=0;
-        std::u8string_view deferred_ref_path{}; // e.g., "#/definitions/graph"
-        size_t resolved_target_idx = 0;     // Left at 0 for now
         source_location object_source_location;
     };
 
@@ -187,6 +186,7 @@ namespace sylvanmats::metaphrase{
             cairns::fixed_stack<size_t, 64> parentStack;
             cairns::fixed_stack<RawEdge, MaxNodes*2> raw_edges;
 
+            cairns::fixed_map<std::u8string_view, size_t, MaxNodes> ref_table;
             std::array<size_t, MaxNodes> child_counts{};
             child_counts.fill(0);
 
@@ -216,7 +216,6 @@ namespace sylvanmats::metaphrase{
                         parent_id=parentStack[parentStack.size()-2];
                     }
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                        // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, EDGE_KIND_AST});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
@@ -237,7 +236,6 @@ namespace sylvanmats::metaphrase{
                     }
                     vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size()});
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                        // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                         raw_edges.push(RawEdge{parent_id, idx1});
                         child_counts[parent_id]++;
                     }
@@ -259,10 +257,10 @@ namespace sylvanmats::metaphrase{
                     }
                     vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size()});
                     if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
-                        // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                         raw_edges.push(RawEdge{parent_id, idx1, EDGE_KIND_AST, schemaContext});
                         child_counts[parent_id]++;
                     }
+                    // else if(edge_kind==EDGE_KIND_DEFINITIONS)ref_table.insert(std::get<1>(vertices[parentStack.back()]).value, idx1);
                     hitColon=false;
                     hitComma=false;
                     keyStart = 0;
@@ -315,6 +313,10 @@ namespace sylvanmats::metaphrase{
                         //     gbnfAcc.append("\n");
                         // }
                     }
+                    else if(edge_kind==EDGE_KIND_DEFINITIONS){
+                        ref_table.insert(std::get<1>(vertices.back()).key, idx1);
+                        rule_symbol_names[idx1]=std::get<1>(vertices.back()).key;
+                    }
                     parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
@@ -359,16 +361,22 @@ namespace sylvanmats::metaphrase{
                         size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                         SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                         EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                        std::u8string_view deferred_ref_path=u8"";
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
                         else if(current_key==u8"$ref"){
                             schemaContext=DATAKEY_MODE;
-                            deferred_ref_path=jsonBuffer.substr(startOffset, cursor - startOffset);
+                            if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/definitions/"))startOffset+=14;
+                            else if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/$defs/"))startOffset+=8;
+                            // gbnfAcc.append("\n\t#ref ");
+                            // gbnfAcc.append(jsonBuffer.substr(keyStart, keyEnd - keyStart));
+                            // gbnfAcc.append(" ");
+                            // gbnfAcc.append(jsonBuffer.substr(startOffset, cursor - startOffset));
+                            // gbnfAcc.append("\n");
+                            
+                            rule_symbol_names[idx1]=jsonBuffer.substr(startOffset, cursor - startOffset);
                         }
-                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
-                        //std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
                         raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                         child_counts[parent_id]++;
                         keyStart = 0;
@@ -386,7 +394,6 @@ namespace sylvanmats::metaphrase{
                         size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
                         SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                         EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                        std::u8string_view deferred_ref_path=u8"";
                         if(hasParentalSyntax(vertices, parentStack)){
                             parent_id=parentStack[parentStack.size()-2];
                         }
@@ -470,9 +477,16 @@ namespace sylvanmats::metaphrase{
                         }
                         if(current_key==u8"$ref"){
                             schemaContext=DATAKEY_MODE;
-                            deferred_ref_path=jsonBuffer.substr(startOffset, cursor - startOffset);
+                            if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/definitions/"))startOffset+=14;
+                            else if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/$defs/"))startOffset+=8;
+                            // gbnfAcc.append("\n\t#ref 2 ");
+                            // gbnfAcc.append(jsonBuffer.substr(keyStart, keyEnd - keyStart));
+                            // gbnfAcc.append(" ");
+                            // gbnfAcc.append(jsonBuffer.substr(startOffset, cursor - startOffset));
+                            // gbnfAcc.append("\n");
+                            //rule_symbol_names[idx1]=jsonBuffer.substr(startOffset, cursor - startOffset);
                         }
-                         vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size(), .deferred_ref_path=deferred_ref_path});
+                         vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
                         // if(vertices.size()>1 && (schemaContext==SCHEMA_MODE)){
                             raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                             child_counts[parent_id]++;
@@ -503,14 +517,12 @@ namespace sylvanmats::metaphrase{
                     if(hitPeriod){
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
-                        // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, edge_kind});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
                     else{
                         size_t idx1 = vertices.size();
                         vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
-                        // std::get<1>(vertices[parent_id]).deferred_ref_path=deferred_ref_path;
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, edge_kind});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
@@ -535,23 +547,21 @@ namespace sylvanmats::metaphrase{
                 }
                 cursor++;
             }
-            size_t deferred_sum = 0;
-            for (auto& vertex : vertices) {
-                if (!std::get<1>(vertex).deferred_ref_path.empty()) {
-                    // Look up which vertex index owns this definition name
-                    std::get<1>(vertex).resolved_target_idx = resolve_ref_pointer(vertices, std::get<1>(vertex).deferred_ref_path);
-                    deferred_sum++;
-                }
-            }
-            // gbnfAcc.append("# Deferred sum ");
-            // gbnfAcc.append(std::format("{}", deferred_sum));
-            // gbnfAcc.append("\n\n");
             std::array<size_t, MaxNodes> edge_offsets{};
             size_t running_sum = 0;
 
             for (size_t i = 0; i < vertices.size(); ++i) {
                 edge_offsets[i] = running_sum;
                 running_sum += child_counts[i];
+                if (ref_table.find(std::get<1>(vertices[i]).key)) {
+                    gbnfAcc.append("#By def: ");
+                    gbnfAcc.append_int(i);
+                    gbnfAcc.append(" ::= ");
+                    gbnfAcc.append(std::get<1>(vertices[i]).key);
+                    gbnfAcc.append(" , ");
+                    gbnfAcc.append(std::get<1>(vertices[i]).value);
+                    gbnfAcc.append("\n");
+                }
             }
 
             // Set the final edge size bounds explicitly
@@ -577,7 +587,7 @@ namespace sylvanmats::metaphrase{
             }
 
             std::array<cairns::fixed_accumulator<4096>, TotalRuleSlots> vertex_rules{};
-            traverse_gbnf_graph(vertices, edges, edge_start_idx, child_counts, rule_symbol_names, vertex_rules, tail_features);
+            traverse_gbnf_graph(vertices, edges, edge_start_idx, ref_table, child_counts, rule_symbol_names, vertex_rules, tail_features);
             // cairns::fixed_accumulator<65536> gbnfAcc{};
             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
             gbnfAcc.append("# Generated automatically from source JSON Schema definitions\n\n");
@@ -664,6 +674,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
             const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
             const std::array<size_t, VCapacity>& edge_start_idx,
+            cairns::fixed_map<std::u8string_view, size_t, VCapacity>& ref_table,
             std::array<size_t, VCapacity>& child_counts,
             std::array<std::u8string_view, MaxNodes>& rule_symbol_names,
             std::array<cairns::fixed_accumulator<4096>, TotalRuleSlots>& vertex_rules, GBNFTailFeatures& tail_features
@@ -709,7 +720,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 }
                 else{
                 std::u8string_view rootType = findType(u, child_counts, vertices, edges, edge_start_idx);
-                std::u8string_view rootItems = findItems(u, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
+                std::u8string_view rootItems = findItems(u, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
                 // 1. Declare the rule name on entry
                 if (state.current_edge_idx == 0 && child_counts[u]>0) {
                     // vertex_rules[active_slot].append(u_obj.key);
@@ -741,11 +752,11 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             // visited[v]=true;
                             //continue;
                             active_slot=current_idx;
-                            vertex_rules[active_slot].append("# start item array");
-                            vertex_rules[active_slot].append_int(current_idx);
-                            vertex_rules[active_slot].append(" ");
-                            vertex_rules[active_slot].append_int(child_counts[u]);
-                            vertex_rules[active_slot].append("\n");
+                            // vertex_rules[active_slot].append("# start item array");
+                            // vertex_rules[active_slot].append_int(current_idx);
+                            // vertex_rules[active_slot].append(" ");
+                            // vertex_rules[active_slot].append_int(child_counts[u]);
+                            // vertex_rules[active_slot].append("\n");
                             }
                         }
                     }
@@ -779,27 +790,33 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
                 bool is_first_field = true;
 
-                if(!rootItems.empty()){
-                    vertex_rules[active_slot].append("# actual_prop_count ");
-                    vertex_rules[active_slot].append_int(actual_prop_count);
-                    vertex_rules[active_slot].append(" ");
-                    vertex_rules[active_slot].append(rootItems);
-                    vertex_rules[active_slot].append(" ");
-                    vertex_rules[active_slot].append(rootType);
-                    vertex_rules[active_slot].append(" ");
-                    vertex_rules[active_slot].append(u_obj.key);
-                    vertex_rules[active_slot].append(" ");
-                    vertex_rules[active_slot].append_int(child_counts[u]);
-                    vertex_rules[active_slot].append("\n");
-                }
+                // if(!rootItems.empty()){
+                //     vertex_rules[active_slot].append("# actual_prop_count ");
+                //     vertex_rules[active_slot].append_int(actual_prop_count);
+                //     vertex_rules[active_slot].append(" ");
+                //     vertex_rules[active_slot].append(rootItems);
+                //     vertex_rules[active_slot].append(" ");
+                //     vertex_rules[active_slot].append(rootType);
+                //     vertex_rules[active_slot].append(" ");
+                //     vertex_rules[active_slot].append(u_obj.key);
+                //     vertex_rules[active_slot].append(" ");
+                //     vertex_rules[active_slot].append_int(child_counts[u]);
+                //     vertex_rules[active_slot].append("\n");
+                // }
                 for (size_t i = 0; i < actual_prop_count; ++i) {
                     const auto& entry = prop_pipeline[i];
                     auto v = entry.v_node;
                     const auto& v_obj = std::get<1>(vertices[entry.v_node]);
 
-                    if(v_obj.resolved_target_idx>0){
-                        size_t r=v_obj.resolved_target_idx;
-                        const auto& r_obj=std::get<1>(vertices[r]);
+                    // vertex_rules[active_slot].append("#prop_pipeline ");
+                    // vertex_rules[active_slot].append_int(i);
+                    // vertex_rules[active_slot].append(" ");
+                    // vertex_rules[active_slot].append(v_obj.key);
+                    // vertex_rules[active_slot].append(" ");
+                    // vertex_rules[active_slot].append(v_obj.value);
+                    // vertex_rules[active_slot].append("\n");
+                    if(size_t* r=nullptr; (r = ref_table.find(v_obj.value)) && false){
+                        const auto& r_obj=std::get<1>(vertices[*r]);
                         if(entry.is_required){
                             vertex_rules[active_slot].append_property_assignment(v_obj.key);
                             vertex_rules[active_slot].append(r_obj.key);
@@ -807,15 +824,15 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         else{
                             vertex_rules[active_slot].append(" ( ");
                             vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            vertex_rules[active_slot].append(r_obj.key);
+                            // vertex_rules[active_slot].append(r_obj.key);
                             if(!entry.is_required)vertex_rules[active_slot].append(" )? ");
                         }
                         vertex_rules[active_slot].append(" ws ");
-                        rule_symbol_names[r] = r_obj.key;
+                        // rule_symbol_names[*r] = v_obj.key;
                         visited[v]=true;
 
                     }
-                    else if(std::get<2>(edges[entry.edge_idx]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
+                    else if(std::get<2>(edges[entry.edge_idx]) == EDGE_KIND_PROPERTIES){
                         // cairns::fixed_stack<std::u8string_view, 128> required_stack;
                         // findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
                         size_t inner_edge = edge_start_idx[v] + 0;
@@ -823,18 +840,18 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         const auto& w_obj = std::get<1>(vertices[w]);
                         if(highest_vertex_id<=w)highest_vertex_id=w+1;
                         std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
-                        std::u8string_view constant = find(u8"const", EDGE_KIND_CONST, v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
-                        std::u8string_view format = find(u8"format", EDGE_KIND_FORMAT, v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
-                        std::u8string_view pattern = find(u8"pattern", EDGE_KIND_PATTERN, v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
-                        std::u8string_view defaultValue = find(u8"default", EDGE_KIND_DEFAULT, v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
-                        std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
-                        std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx, rule_symbol_names);
+                        std::u8string_view constant = find(u8"const", EDGE_KIND_CONST, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+                        std::u8string_view format = find(u8"format", EDGE_KIND_FORMAT, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+                        std::u8string_view pattern = find(u8"pattern", EDGE_KIND_PATTERN, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+                        std::u8string_view defaultValue = find(u8"default", EDGE_KIND_DEFAULT, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+                        std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+                        std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
                         cairns::fixed_stack<std::u8string_view, 128> enumerated_array;
                         findEnumerationArray(v, child_counts, vertices, edges, edge_start_idx, enumerated_array);
                         cairns::fixed_stack<std::u8string_view, 128> prefix_items_array;
                         findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
                         size_t synthetic_idx = (rootItems.empty())? MaxNodes + entry.edge_idx : active_slot;
-                        if(w_obj.resolved_target_idx>0){
+                        if(size_t* r=nullptr; (r = ref_table.find(w_obj.value)) && std::get<2>(edges[inner_edge]) == EDGE_KIND_REF && false){
                             if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
                             if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
@@ -844,11 +861,11 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
 
                             if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
                             vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            vertex_rules[active_slot].append(std::get<1>(vertices[w_obj.resolved_target_idx]).key);
+                            vertex_rules[active_slot].append(std::get<1>(vertices[*r]).key);
                             if(!entry.is_required)vertex_rules[active_slot].append(")?");
                             visited[v]=true;
                             visited[w]=true;
-                            rule_symbol_names[w_obj.resolved_target_idx]=std::get<1>(vertices[w_obj.resolved_target_idx]).key;
+                            rule_symbol_names[*r]=w_obj.value;
                             is_first_field = false;
                         }
                         else if(!constant.empty() && !type.empty()){
@@ -896,9 +913,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         else if(!pattern.empty() && !type.empty()){
                             if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
+                                if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                                vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                                is_first_field = false;
                             }
 
                             vertex_rules[active_slot].append_regex_as_quoted_gbnf(pattern);
@@ -924,9 +941,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         else if(!items.empty() && type==u8"array"){
                             if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
+                                if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                                vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                                is_first_field = false;
                             }
 
                             vertex_rules[active_slot].append(" \"[\" ws ");
@@ -978,9 +995,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         else if(enumerated_array.size()>0){
                             if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
+                                if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                                vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                                is_first_field = false;
                             }
 
                             vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
@@ -1005,9 +1022,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         else if(!additionalProperties.empty() && type==u8"object"){
                             if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
                             if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
+                                if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+                                vertex_rules[active_slot].append_property_assignment(v_obj.key);
+                                is_first_field = false;
                             }
                             vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
                             // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
@@ -1041,9 +1058,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                                 size_t inner_x_edge = edge_start_idx[w];
                                 size_t x = std::get<1>(edges[inner_x_edge]);
                                 const auto& x_obj = std::get<1>(vertices[x]);
-                                if(x_obj.resolved_target_idx>0){
-                                    vertex_rules[active_slot].append(std::get<1>(vertices[x_obj.resolved_target_idx]).key);
-                                    rule_symbol_names[x_obj.resolved_target_idx] = std::get<1>(vertices[x_obj.resolved_target_idx]).key;
+                                if(size_t* r=nullptr; (r = ref_table.find(x_obj.value)) && std::get<2>(edges[inner_v_edge]) == EDGE_KIND_REF && false){
+                                    vertex_rules[active_slot].append(std::get<1>(vertices[*r]).key);
+                                    rule_symbol_names[*r] = x_obj.value;
                                 }
                                 else
                                     vertex_rules[active_slot].append(x_obj.value);
@@ -1106,14 +1123,13 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     if(visited[v]){
 
                     }
-                    else if(v_obj.resolved_target_idx>0){
-                        size_t r=v_obj.resolved_target_idx;
-                        const auto& r_obj=std::get<1>(vertices[r]);
+                    else if(size_t* r=nullptr; (r= ref_table.find(v_obj.value)) && std::get<2>(edges[next_edge]) == EDGE_KIND_REF && false){
+                        const auto& r_obj=std::get<1>(vertices[*r]);
                         if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
                         vertex_rules[active_slot].append_property_assignment(v_obj.key);
                         vertex_rules[active_slot].append(r_obj.key);
                         vertex_rules[active_slot].append(" ws ");
-                        rule_symbol_names[r] = r_obj.key;
+                        // rule_symbol_names[*r] = v_obj.value;
                         visited[v]=true;
 
                     }
@@ -1192,15 +1208,15 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                     // }
                     // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
                     // }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PATTERN_PROPERTIES && v_obj.resolved_target_idx==0){
+                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PATTERN_PROPERTIES && !ref_table.find(v_obj.key)){
                         size_t inner_edge = edge_start_idx[v] + 0;
                         size_t w = std::get<1>(edges[inner_edge]);
                         const auto& w_obj = std::get<1>(vertices[w]);
                         if(highest_vertex_id<=w)highest_vertex_id=w+1;
                         std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
                         size_t pattern_key_idx = MaxNodes + next_edge;
-                        if(w_obj.resolved_target_idx>0){
-                            const auto& r_obj=std::get<1>(vertices[w_obj.resolved_target_idx]);
+                        if(size_t* r=nullptr; (r = ref_table.find(w_obj.value)) && std::get<2>(edges[inner_edge]) == EDGE_KIND_REF && false){
+                            const auto& r_obj=std::get<1>(vertices[*r]);
                             vertex_rules[active_slot].append(" ( ");
                             vertex_rules[active_slot].append(r_obj.key);
                             vertex_rules[active_slot].append("-");
@@ -1220,7 +1236,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             // vertex_rules[pattern_key_idx].append(" ::= ");
                             vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
                             // vertex_rules[pattern_key_idx].append("\n");
-                            rule_symbol_names[w_obj.resolved_target_idx]=std::get<1>(vertices[w_obj.resolved_target_idx]).key;
+                            // rule_symbol_names[*r]=w_obj.value;
                         }
                         else{
                             vertex_rules[active_slot].append(" ( ");
@@ -1245,9 +1261,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                         // visited[v]=true;
                     }
                     else if(u_obj.obj_type==JSON_OBJECT && (v_obj.obj_type==JSON_STRING || v_obj.obj_type==JSON_NUMBER || v_obj.obj_type==JSON_BOOLEAN || v_obj.obj_type==JSON_NULL)){
-                        vertex_rules[active_slot].append(" \"");
-                        vertex_rules[active_slot].append(getPrimitiveName(v_obj.obj_type));
-                        vertex_rules[active_slot].append("\"");
+                        // vertex_rules[active_slot].append(" \"");
+                        vertex_rules[active_slot].append_quoted_escaped(getPrimitiveName(v_obj.obj_type));
+                        // vertex_rules[active_slot].append("\"");
                         visited[v]=true;
                     } else if(child_counts[u]>0){
                         if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(" ws \",\" ws ");
@@ -1278,13 +1294,13 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                             vertex_rules[active_slot].append("\n");
                         }
                     }
-                    if(!rootItems.empty()){
-                        vertex_rules[active_slot].append("# visited? ");
-                        vertex_rules[active_slot].append(v_obj.key);
-                        vertex_rules[active_slot].append(" visited[v] ");
-                        vertex_rules[active_slot].append_int(visited[v]);
-                        vertex_rules[active_slot].append("\n");
-                    }
+                    // if(!rootItems.empty()){
+                    //     vertex_rules[active_slot].append("# visited? ");
+                    //     vertex_rules[active_slot].append(v_obj.key);
+                    //     vertex_rules[active_slot].append(" visited[v] ");
+                    //     vertex_rules[active_slot].append_int(visited[v]);
+                    //     vertex_rules[active_slot].append("\n");
+                    // }
                     if (!visited[v]) {
                         visited[v] = true;
                         if(v_obj.obj_type!=JSON_STRING && v_obj.obj_type!=JSON_NUMBER && v_obj.obj_type!=JSON_BOOLEAN && v_obj.obj_type!=JSON_NULL){
@@ -1523,7 +1539,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
         constexpr std::u8string_view find(std::u8string_view key, EDGE_KIND kind, const size_t u, std::array<size_t, VCapacity>& child_counts,
             const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
             const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
-            const std::array<size_t, VCapacity>& edge_start_idx, std::array<std::u8string_view, MaxNodes>& rule_symbol_names)
+            const std::array<size_t, VCapacity>& edge_start_idx, cairns::fixed_map<std::u8string_view, size_t, VCapacity>& ref_table, std::array<std::u8string_view, MaxNodes>& rule_symbol_names)
         {
             std::u8string_view value = u8"";
             size_t current_edge_idx = 0;
@@ -1532,9 +1548,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 size_t w = std::get<1>(edges[inner_edge]);
                 const auto& w_obj = std::get<1>(vertices[w]);
                 if(value.empty() && (w_obj.key == key || std::get<2>(edges[inner_edge])==kind)){
-                    if(w_obj.resolved_target_idx>0){
-                        value=std::get<1>(vertices[w_obj.resolved_target_idx]).key;
-                        rule_symbol_names[w_obj.resolved_target_idx]=std::get<1>(vertices[w_obj.resolved_target_idx]).key;
+                    if(size_t* r=nullptr; (r = ref_table.find(w_obj.value)) && std::get<2>(edges[inner_edge]) == EDGE_KIND_REF && false){
+                        value=std::get<1>(vertices[*r]).value;
+                        // rule_symbol_names[*r]=w_obj.value;
                     }
                     else
                         value=w_obj.value;
@@ -1554,7 +1570,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
         constexpr std::u8string_view findItems(const size_t u, std::array<size_t, VCapacity>& child_counts,
             const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
             const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
-            const std::array<size_t, VCapacity>& edge_start_idx, std::array<std::u8string_view, MaxNodes>& rule_symbol_names)
+            const std::array<size_t, VCapacity>& edge_start_idx, cairns::fixed_map<std::u8string_view, size_t, VCapacity>& ref_table, std::array<std::u8string_view, MaxNodes>& rule_symbol_names)
         {
             std::u8string_view items = u8"";
             size_t current_edge_idx = 0;
@@ -1563,9 +1579,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 size_t v = std::get<1>(edges[inner_edge]);
                 const auto& v_obj = std::get<1>(vertices[v]);
                 if(std::get<2>(edges[inner_edge]) == EDGE_KIND_ITEMS){
-                    if(v_obj.resolved_target_idx>0){
-                        items=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
-                        rule_symbol_names[v_obj.resolved_target_idx]=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
+                    if(size_t* r=nullptr; (r = ref_table.find(v_obj.key)) && std::get<2>(edges[inner_edge]) == EDGE_KIND_REF && false){
+                        items=std::get<1>(vertices[*r]).key;
+                        // rule_symbol_names[*r]=v_obj.key;
                     }
                     else
                         items=v_obj.value;
@@ -1580,7 +1596,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
         constexpr std::u8string_view findAdditionalProperties(const size_t u, std::array<size_t, VCapacity>& child_counts,
             const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
             const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
-            const std::array<size_t, VCapacity>& edge_start_idx, std::array<std::u8string_view, MaxNodes>& rule_symbol_names)
+            const std::array<size_t, VCapacity>& edge_start_idx,cairns::fixed_map<std::u8string_view, size_t, VCapacity>& ref_table, std::array<std::u8string_view, MaxNodes>& rule_symbol_names)
         {
             std::u8string_view additionalProperties = u8"";
             size_t current_edge_idx = 0;
@@ -1589,9 +1605,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                 size_t v = std::get<1>(edges[inner_edge]);
                 const auto& v_obj = std::get<1>(vertices[v]);
                 if(std::get<2>(edges[inner_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
-                    if(v_obj.resolved_target_idx>0){
-                        additionalProperties=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
-                        rule_symbol_names[v_obj.resolved_target_idx]=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
+                    if(size_t* r=nullptr;(r = ref_table.find(v_obj.value)) &&  false){
+                        additionalProperties=std::get<1>(vertices[*r]).key;
+                        // rule_symbol_names[*r]=v_obj.key;
                     }
                     else
                         additionalProperties=v_obj.value;
