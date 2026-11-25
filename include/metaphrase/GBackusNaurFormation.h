@@ -325,7 +325,7 @@ namespace sylvanmats::metaphrase{
                 else if(jsonBuffer[cursor]=='}'){
                     parentStack.pop();
                 }
-                if(jsonBuffer[cursor]=='['){
+                else if(jsonBuffer[cursor]=='['){
                    size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     
