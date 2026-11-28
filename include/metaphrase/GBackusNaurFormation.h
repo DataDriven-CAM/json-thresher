@@ -27,6 +27,10 @@
 #include "cairns/fixed_map.h"
 #include "cairns/fixed_stack.h"
 #include "cairns/fixed_accumulator.h"
+#include "cairns/graph_printer.h"
+
+#include <cairns/dfs.h>
+#include <type_traits>
 
 namespace sylvanmats::metaphrase{
 
@@ -41,6 +45,7 @@ namespace sylvanmats::metaphrase{
 
 // Layout descriptors
     enum OBJECT_TYPE{
+        JSON_META_ROOT,
         JSON_ROOT,
         JSON_OBJECT,
         JSON_ARRAY,
@@ -49,8 +54,33 @@ namespace sylvanmats::metaphrase{
         JSON_INTEGER,
         JSON_BOOLEAN,
         PAIR_VALUE,
-        JSON_NULL
+        JSON_NULL,
+        JSON_OBJECT_END
     };
+
+    enum SCHEMA_TYPE : uint8_t {
+        SCHEMA_TYPE_ANY     = 0,
+        SCHEMA_TYPE_NULL    = 1 << 0, // "null"
+        SCHEMA_TYPE_BOOLEAN = 1 << 1, // "boolean"
+        SCHEMA_TYPE_OBJECT  = 1 << 2, // "object"
+        SCHEMA_TYPE_ARRAY   = 1 << 3, // "array"
+        SCHEMA_TYPE_NUMBER  = 1 << 4, // "number"
+        SCHEMA_TYPE_STRING  = 1 << 5, // "string"
+        SCHEMA_TYPE_INTEGER = 1 << 6, // "integer"
+    };
+
+    constexpr SCHEMA_TYPE operator|(SCHEMA_TYPE a, SCHEMA_TYPE b) noexcept {
+        return static_cast<SCHEMA_TYPE>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b));
+    }
+
+    constexpr SCHEMA_TYPE& operator|=(SCHEMA_TYPE& a, SCHEMA_TYPE b) noexcept {
+        a = a | b;
+        return a;
+    }
+
+    constexpr bool has_type(SCHEMA_TYPE mask, SCHEMA_TYPE flag) noexcept {
+        return (static_cast<uint8_t>(mask) & static_cast<uint8_t>(flag)) != 0;
+    }
 
     enum SCHEMA_CONTEXT : size_t {
         SCHEMA_MODE,     // Keywords active (type, properties)
@@ -136,14 +166,25 @@ namespace sylvanmats::metaphrase{
     };
 
     struct jobject{
-        OBJECT_TYPE obj_type;
-        SCHEMA_CONTEXT context=SCHEMA_CONTEXT::SCHEMA_MODE;
-        size_t id=0;
-        size_t parent_id=0;
+        [[=cairns::skip_print{}]] OBJECT_TYPE obj_type = OBJECT_TYPE::JSON_OBJECT;
+        [[=cairns::skip_print{}]] SCHEMA_CONTEXT context=SCHEMA_CONTEXT::SCHEMA_MODE;
+        [[=cairns::skip_print{}]] size_t id=0;
+        [[=cairns::skip_print{}]] size_t parent_id=0;
         std::u8string_view key{};
         std::u8string_view value{};
-        size_t depth=0;
-        source_location object_source_location;
+        [[=cairns::skip_print{}]] size_t depth=0;
+        [[=cairns::skip_print{}]] source_location object_source_location;
+        [[=cairns::skip_print{}]] EDGE_KIND edge_kind=EDGE_KIND_AST;
+        
+        // --- Direct GBNF Grammar Properties ---
+        [[=cairns::print_label{"req"}]] bool is_required = false;               // Marked true when named in parent's "required" array
+        [[=cairns::print_bool_when{false}, =cairns::print_label{"closed"}]] bool additional_properties = true;      // Set false by "additionalProperties": false
+        [[=cairns::print_label{"type"}, =cairns::bitmask_enum{}]] SCHEMA_TYPE type_mask = SCHEMA_TYPE::SCHEMA_TYPE_ANY;
+        size_t min_items = 0;                   // Array lower bound ("minItems")
+        size_t max_items = std::numeric_limits<size_t>::max(); // Array upper bound ("maxItems")
+        size_t min_length = 0;                  // String lower bound ("minLength")
+        size_t max_length = std::numeric_limits<size_t>::max(); // String upper bound ("maxLength")
+        std::u8string_view pattern{};           // Regex constraint ("pattern" or "format")
     };
 
     struct RawEdge {
@@ -166,12 +207,193 @@ namespace sylvanmats::metaphrase{
         bool needs_date_time = false;
     };
 
+struct object_scope_frame {
+    size_t vertex_id = 0;
+    size_t depth = 0;
+    EDGE_KIND edge_kind = EDGE_KIND::EDGE_KIND_AST;
+    SCHEMA_CONTEXT context = SCHEMA_CONTEXT::SCHEMA_MODE;
+    bool is_schema_object = true;
+};
+
+struct pending_required_entry {
+    size_t owner_vertex_id = 0;
+    std::u8string_view key{};
+};
+
+template <size_t AccumulatorSize, size_t MaxDepth = 64>
+struct gbnf_emitter {
+    cairns::fixed_string<AccumulatorSize> out{};
+
+    struct object_emit_state {
+        size_t prop_count = 0;
+        bool has_required_before = false;
+    };
+
+    cairns::fixed_stack<object_emit_state, MaxDepth> obj_stack{};
+    cairns::fixed_stack<size_t, MaxDepth> array_item_start_stack{};
+    cairns::fixed_stack<EDGE_KIND, MaxDepth> edge_stack{};
+
+    EDGE_KIND incoming_edge = EDGE_KIND::EDGE_KIND_NONE;
+
+    constexpr void emit_primitive_type(SCHEMA_TYPE mask) noexcept {
+        uint8_t bits = static_cast<uint8_t>(mask);
+        if (bits == 0) {
+            out += "value";
+            return;
+        }
+
+        bool multi = (std::popcount(bits) > 1);
+        if (multi) out += "( ";
+
+        bool first = true;
+        auto emit_one = [&](SCHEMA_TYPE flag, std::string_view rule) {
+            if (has_type(mask, flag)) {
+                if (!first) out += " | ";
+                out += rule;
+                first = false;
+            }
+        };
+
+        emit_one(SCHEMA_TYPE_STRING,  "string");
+        emit_one(SCHEMA_TYPE_INTEGER, "integer");
+        emit_one(SCHEMA_TYPE_NUMBER,  "number");
+        emit_one(SCHEMA_TYPE_BOOLEAN, "boolean");
+        emit_one(SCHEMA_TYPE_NULL,    "\"null\"");
+
+        if (multi) out += " )";
+    }
+
+    template <typename VertexTuple>
+    constexpr void on_enter(size_t u, const VertexTuple& v_data, size_t child_count) noexcept {
+        if (u == 0) return;
+        const auto& obj = std::get<1>(v_data);
+
+        // If intermediate "properties" wrapper vertex is still in AST, pass through transparently
+        if (incoming_edge == EDGE_KIND::EDGE_KIND_PROPERTIES && obj.key == u8"properties") {
+            edge_stack.push(incoming_edge);
+            return;
+        }
+
+        // Treat children of a "properties" wrapper vertex as direct object properties
+        bool is_property = (incoming_edge == EDGE_KIND::EDGE_KIND_PROPERTIES) ||
+                        (!edge_stack.empty() && edge_stack.back() == EDGE_KIND::EDGE_KIND_PROPERTIES);
+
+        edge_stack.push(is_property ? EDGE_KIND::EDGE_KIND_PROPERTIES : incoming_edge);
+
+        // 1. Top-level GBNF production header (direct child of silent #0 ROOT)
+        if (obj.parent_id == 0) {
+
+            if(obj.obj_type==JSON_META_ROOT){
+                out += std::u8string_view(u8"meta");
+            }
+            else
+                out += obj.key.empty() ? std::u8string_view(u8"root") : obj.key;
+            // if (incoming_edge == EDGE_KIND::EDGE_KIND_DEFINITIONS) {
+            //     // Named $defs production (e.g., SimpleUser ::= ...)
+            //     out += obj.key;
+            // } else {
+            //     out += "root";
+            // }
+            out += " ::= ";
+        }
+
+        // 2. Object property key & separator
+        if (is_property && !obj_stack.empty()) {
+            auto& st = obj_stack.back();
+            if (!obj.is_required) {
+                out += "( ";
+            }
+            if (st.prop_count > 0) {
+                out += "\",\" ws ";
+            }
+            out += "\"\\\"";
+            out += obj.key;
+            out += "\\\"\" ws \":\" ws ";
+            st.prop_count++;
+        }
+
+        // 3. $ref edge emits target rule name directly
+        if (incoming_edge == EDGE_KIND::EDGE_KIND_REF) {
+            out += obj.value.empty() ? obj.key : obj.value;
+            return;
+        }
+
+        // 4. Node body by schema type (only emit "value" if leaf with no child edges!)
+        if (has_type(obj.type_mask, SCHEMA_TYPE_OBJECT)) {
+            out += "\"{\" ws ";
+            obj_stack.emplace(0, false);
+        } else if (has_type(obj.type_mask, SCHEMA_TYPE_ARRAY)) {
+            out += "\"[\" ws ( ";
+            array_item_start_stack.push(out.size());
+        } else if (obj.type_mask != SCHEMA_TYPE_ANY || child_count == 0) {
+            emit_primitive_type(obj.type_mask);
+        }
+    }
+
+    template <typename EdgeTuple>
+    constexpr cairns::dfs_control on_edge(
+        size_t /*u*/, size_t /*v*/, const EdgeTuple& e_data,
+        size_t /*edge_idx*/, size_t /*total_edges*/
+    ) noexcept {
+        incoming_edge = std::get<2>(e_data);
+        return cairns::dfs_control::continue_dfs;
+    }
+
+    template <typename VertexTuple>
+    constexpr void on_exit(size_t u, const VertexTuple& v_data, size_t child_count) noexcept {
+        if (u == 0) return;
+        const auto& obj = std::get<1>(v_data);
+
+        EDGE_KIND entered_via = EDGE_KIND::EDGE_KIND_NONE;
+        if (!edge_stack.empty()) {
+            entered_via = edge_stack.back();
+            edge_stack.pop();
+        }
+
+        // Close object or array container
+        if (has_type(obj.type_mask, SCHEMA_TYPE_OBJECT)) {
+            if (!obj_stack.empty()) {
+                obj_stack.pop();
+            }
+            out += " ws \"}\"";
+        } else if (has_type(obj.type_mask, SCHEMA_TYPE_ARRAY)) {
+            size_t item_start = out.size();
+            if (!array_item_start_stack.empty()) {
+                item_start = array_item_start_stack.back();
+                array_item_start_stack.pop();
+            }
+
+            if (child_count == 0 || item_start >= out.size()) {
+                // Unconstrained array ("type": "array" with no "items")
+                out += "value ( \",\" ws value )* )? ws \"]\"";
+            } else {
+                // Capture the exact GBNF text emitted by the ITEMS child
+                std::string_view item_rule = out.view().substr(item_start, out.size() - item_start);
+                out += " ( \",\" ws ";
+                out += item_rule;
+                out += " )* )? ws \"]\"";
+            }
+        }
+
+        // Close optional property wrapper if entered via EDGE_KIND_PROPERTIES and not required
+        if (entered_via == EDGE_KIND::EDGE_KIND_PROPERTIES && !obj.is_required) {
+            out += " )?";
+        }
+
+        // Terminate top-level GBNF rule line
+        if (obj.parent_id == 0) {
+            out += "\n";
+        }
+    }
+};
+
     template <size_t BufferSize>
     class GBackusNaurFormation{
         private:
         static constexpr size_t MaxNodes = std::max(size_t{128}, BufferSize / 16);
         static constexpr size_t TotalRuleSlots = MaxNodes * 3;
         static constexpr size_t AccumulatorSize = std::max(size_t{16384}, BufferSize * 4);
+        static constexpr bool debug=false;
 
         public:
         GBackusNaurFormation() = default;
@@ -183,7 +405,8 @@ namespace sylvanmats::metaphrase{
         constexpr cairns::fixed_string<AccumulatorSize> operator ()(std::u8string_view jsonBuffer){
             cairns::fixed_stack<std::tuple<size_t, jobject>, MaxNodes> vertices;
             cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, MaxNodes*2> edges;
-            cairns::fixed_stack<size_t, 64> parentStack;
+            cairns::fixed_stack<object_scope_frame, 64> parentStack;
+            cairns::fixed_stack<pending_required_entry, 64> pendingRequired;
             cairns::fixed_stack<RawEdge, MaxNodes*2> raw_edges;
 
             cairns::fixed_map<std::u8string_view, size_t, MaxNodes> ref_table;
@@ -199,6 +422,8 @@ namespace sylvanmats::metaphrase{
             bool firstObject=true;
             cairns::fixed_accumulator<AccumulatorSize> gbnfAcc{};
             std::array<std::u8string_view, MaxNodes> rule_symbol_names{};
+            vertices.emplace(0, jobject{.obj_type=JSON_META_ROOT, .context=SCHEMA_MODE, .id=0, .parent_id=0, .depth=0});
+            parentStack.emplace(0, 0);
             while(cursor<jsonBuffer.size()){
                 while (cursor < jsonBuffer.size() && 
                     (jsonBuffer[cursor] == ' ' || jsonBuffer[cursor] == '\t' || 
@@ -209,12 +434,10 @@ namespace sylvanmats::metaphrase{
                 if(jsonBuffer[cursor]=='n' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)==u8"null"){
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
-                    size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
-                    if(hasParentalSyntax(vertices, parentStack)){
-                        parent_id=parentStack[parentStack.size()-2];
-                    }
+                    size_t parent_id=parentStack.empty() ? 0 : parentStack.back().vertex_id;
+                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(current_key);
+                    if(!is_schema_keyword(current_key))
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_NULL, .id=idx1, .parent_id=parentStack.back().vertex_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
                     if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, EDGE_KIND_AST});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
@@ -229,15 +452,15 @@ namespace sylvanmats::metaphrase{
                 else if(jsonBuffer[cursor]=='t' && cursor<jsonBuffer.size()-4 && jsonBuffer.substr(cursor, 4)==u8"true"){
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
-                    size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                    if(hasParentalSyntax(vertices, parentStack)){
-                        parent_id=parentStack[parentStack.size()-2];
-                    }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size()});
-                    if(vertices.size()>1 && edge_kind==EDGE_KIND_AST){
-                        raw_edges.push(RawEdge{parent_id, idx1});
-                        child_counts[parent_id]++;
+                    size_t parent_id=parentStack.empty() ? 0 : parentStack.back().vertex_id;
+                    SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back().vertex_id]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
+                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(current_key);
+                    if(schemaContext==DATAKEY_MODE || !is_schema_keyword(current_key)){
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 4), .depth=parentStack.size()});
+                        if(vertices.size()>1){
+                            raw_edges.push(RawEdge{parent_id, idx1});
+                            child_counts[parent_id]++;
+                        }
                     }
                     hitColon=false;
                     hitComma=false;
@@ -249,18 +472,20 @@ namespace sylvanmats::metaphrase{
                 else if(jsonBuffer[cursor]=='f' && cursor<jsonBuffer.size()-5 && jsonBuffer.substr(cursor, 5)==u8"false"){
                     size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
-                    size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
-                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                    if(hasParentalSyntax(vertices, parentStack)){
-                        parent_id=parentStack[parentStack.size()-2];
+                    size_t parent_id=parentStack.empty() ? 0 : parentStack.back().vertex_id;
+                    SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back().vertex_id]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
+                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(current_key);
+                    if(edge_kind==EDGE_KIND_ADDITIONAL_PROPERTIES){
+                        std::get<1>(vertices[parent_id]).additional_properties=false;
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size()});
-                    if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
-                        raw_edges.push(RawEdge{parent_id, idx1, EDGE_KIND_AST, schemaContext});
-                        child_counts[parent_id]++;
+                    else if(schemaContext==DATAKEY_MODE || std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_ADDITIONAL_PROPERTIES || !is_schema_keyword(current_key)){
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_BOOLEAN, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(cursor, 5), .depth=parentStack.size()});
+                        if(vertices.size()>1){
+                            raw_edges.push(RawEdge{parent_id, idx1, std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind, schemaContext});
+                            child_counts[parent_id]++;
+                        }
                     }
-                    // else if(edge_kind==EDGE_KIND_DEFINITIONS)ref_table.insert(std::get<1>(vertices[parentStack.back()]).value, idx1);
+                    // else if(edge_kind==EDGE_KIND_DEFINITIONS)ref_table.insert(std::get<1>(vertices[parentStack.back().vertex_id]).value, idx1);
                     hitColon=false;
                     hitComma=false;
                     keyStart = 0;
@@ -274,76 +499,70 @@ namespace sylvanmats::metaphrase{
                     if(firstObject){
                         current_key=u8"root";
                     }
-                    // Check the key immediately to set the flag inline
-                    size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
-                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                    if(schemaContext==DATAKEY_MODE)edge_kind=EDGE_KIND_PROPERTIES;
-                    if(hasParentalSyntax(vertices, parentStack)){
-                        parent_id=parentStack[parentStack.size()-2];
+                    EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back().vertex_id]).key);
+                    if(std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_PROPERTIES)edge_kind=EDGE_KIND_PROPERTIES;
+                    while(edge_kind==EDGE_KIND_DEFINITIONS && parentStack.size()>1)parentStack.pop();
+                    size_t parent_id=parentStack.back().vertex_id;
+                    SCHEMA_CONTEXT schemaContext=(edge_kind==EDGE_KIND_PROPERTIES) ? DATAKEY_MODE : SCHEMA_MODE;
+                    // if(schemaContext==DATAKEY_MODE)edge_kind=EDGE_KIND_PROPERTIES;
+                    if(current_key!=u8"properties" && (schemaContext==DATAKEY_MODE || std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_ITEMS || !is_schema_keyword(current_key))){
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
+                        if(vertices.size()>1){
+                            raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
+                            child_counts[parent_id]++;
+                            if(edge_kind==EDGE_KIND_DEFINITIONS || firstObject){
+                                ref_table.insert(std::get<1>(vertices.back()).key, idx1);
+                                rule_symbol_names[idx1]=std::get<1>(vertices.back()).key;
+                            }
+                        }
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_OBJECT, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
-                        // if(schemaContext==DATAKEY_MODE && current_key==u8"type"){
-                        //     gbnfAcc.append("\n#type  ");
-                        //     gbnfAcc.append(std::get<1>(vertices[parent_id]).key);
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(current_key);
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::get<1>(vertices.back()).value);
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(parent_id));
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(idx1));
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(edge_kind));
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(schemaContext));
-                        //     gbnfAcc.append("\n");
-                        // }
                     keyStart = 0;
                     keyEnd = 0;
-                    if(!firstObject && vertices.size()>1 && (schemaContext==DATAKEY_MODE || (!is_schema_keyword(current_key) && edge_kind!=EDGE_KIND_DEFINITIONS))){
-                        raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
-                        child_counts[parent_id]++;
-                        // if(schemaContext==DATAKEY_MODE && current_key==u8"type"){
-                        //     gbnfAcc.append("\n\t#type  child_counts ");
-                        //     gbnfAcc.append(std::to_string(child_counts[parent_id]));
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(parent_id));
-                        //     gbnfAcc.append("\n");
-                        // }
+                    if(schemaContext==DATAKEY_MODE || !is_schema_keyword(current_key))
+                        parentStack.emplace(std::get<1>(vertices.back()).id, parentStack.size(), edge_kind, schemaContext, is_schema_object(current_key));
+                    else{
+                        parentStack.back().edge_kind=parentStack.back().edge_kind;
+                        parentStack.emplace(parentStack.back().vertex_id, parentStack.back().depth, parentStack.back().edge_kind, parentStack.back().context, parentStack.back().is_schema_object);
                     }
-                    else if(edge_kind==EDGE_KIND_DEFINITIONS){
-                        ref_table.insert(std::get<1>(vertices.back()).key, idx1);
-                        rule_symbol_names[idx1]=std::get<1>(vertices.back()).key;
-                    }
-                    parentStack.push(std::get<1>(vertices.back()).id);
                     hitColon=false;
                     hitComma=false;
                     firstObject=false;
                 }
                 else if(jsonBuffer[cursor]=='}'){
+                    if(!pendingRequired.empty()){
+                        for(size_t vid=0;vid<vertices.size();vid++){
+                            if(parentStack.back().vertex_id==std::get<1>(vertices[vid]).parent_id){
+                                std::get<1>(vertices[vid]).is_required=pendingRequired.anyOf([&](const auto& req) {
+                                    return req.owner_vertex_id == parentStack.back().vertex_id && req.key == std::get<1>(vertices[vid]).key;
+                                });
+                            }
+                        }
+                        // pendingRequired.clear();
+                    }
                     parentStack.pop();
                 }
-                if(jsonBuffer[cursor]=='['){
+                else if(jsonBuffer[cursor]=='['){
                    size_t idx1 = vertices.size();
                     std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                     
-                    // Check the key immediately to set the flag inline
-                    size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                    SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
-                    EDGE_KIND edge_kind=parentStack.empty() ? EDGE_KIND_AST : getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                    if(hasParentalSyntax(vertices, parentStack)){
-                        parent_id=parentStack[parentStack.size()-2];
+                    EDGE_KIND edge_kind=getEdgeKind(current_key);
+                    if(edge_kind==EDGE_KIND_DEFINITIONS && parentStack.size()>1)parentStack.pop();
+                    size_t parent_id=parentStack.empty() ? 0 : parentStack.back().vertex_id;
+                    SCHEMA_CONTEXT schemaContext=(std::get<1>(vertices[parentStack.back().vertex_id]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
+                    /*if(schemaContext==DATAKEY_MODE || edge_kind==EDGE_KIND_PROPERTIES || edge_kind==EDGE_KIND_REQUIRED || !is_schema_keyword(current_key)){
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
+                        if(vertices.size()>1){
+                            raw_edges.push(RawEdge{parent_id, idx1, std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind, schemaContext});
+                            child_counts[parent_id]++;
+                        }
                     }
-                    vertices.emplace(idx1, jobject{.obj_type=JSON_ARRAY, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(cursor, 1), .depth=parentStack.size()});
+                    else*/ //std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
                     keyStart = 0;
                     keyEnd = 0;
-                    if(vertices.size()>1 && (schemaContext==DATAKEY_MODE || !is_schema_keyword(current_key))){
-                        raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
-                        child_counts[parent_id]++;
-                    }
-                    parentStack.push(std::get<1>(vertices.back()).id);
+                    if(schemaContext==DATAKEY_MODE || !is_schema_keyword(current_key))
+                        parentStack.emplace(std::get<1>(vertices.back()).id, parentStack.size(), edge_kind, schemaContext, is_schema_object(current_key));
+                    else
+                        parentStack.emplace(parentStack.back().vertex_id, parentStack.back().depth, parentStack.back().edge_kind, parentStack.back().context, parentStack.back().is_schema_object);
                     hitColon=false;
                     hitComma=false;
                 }
@@ -355,48 +574,68 @@ namespace sylvanmats::metaphrase{
                     size_t startOffset=cursor;
                     size_t c=0;
                     while(cursor<jsonBuffer.size() && jsonBuffer[cursor]!='"'){if(jsonBuffer[cursor]=='\\'){cursor++;};cursor++;c++;};
-                    if(std::get<1>(vertices[parentStack.back()]).obj_type==JSON_ARRAY){
+                    if(std::get<1>(vertices[parentStack.back().vertex_id]).obj_type==JSON_ARRAY){
                         size_t idx1 = vertices.size();
                         std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
-                        size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                        SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
-                        EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                        if(hasParentalSyntax(vertices, parentStack)){
-                            parent_id=parentStack[parentStack.size()-2];
-                        }
-                        else if(current_key==u8"$ref"){
-                            schemaContext=DATAKEY_MODE;
+                        EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack[parentStack.size()-1].vertex_id]).key);
+                        size_t parent_id=parentStack.empty() ? 0 : parentStack.back().vertex_id;
+                        SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back().vertex_id]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
+                        // std::get<1>(vertices[parentStack[parentStack.size()-1].vertex_id]).is_required=true;
+                        if(edge_kind==EDGE_KIND_REF){
                             if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/definitions/"))startOffset+=14;
                             else if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/$defs/"))startOffset+=8;
-                            // gbnfAcc.append("\n\t#ref ");
-                            // gbnfAcc.append(jsonBuffer.substr(keyStart, keyEnd - keyStart));
-                            // gbnfAcc.append(" ");
-                            // gbnfAcc.append(jsonBuffer.substr(startOffset, cursor - startOffset));
-                            // gbnfAcc.append("\n");
-                            
-                            rule_symbol_names[idx1]=jsonBuffer.substr(startOffset, cursor - startOffset);
                         }
-                        vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
-                        raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
-                        child_counts[parent_id]++;
+                        // else if(std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_REQUIRED){
+                        //     size_t owner_id = parentStack[parentStack.size()-1].vertex_id;
+                        //     pendingRequired.emplace(owner_id, jsonBuffer.substr(startOffset, cursor - startOffset));
+                        // }
+                        else if(edge_kind==EDGE_KIND_TYPE){
+                            std::get<1>(vertices[parentStack[parentStack.size()-2].vertex_id]).type_mask|=parse_schema_type_token(jsonBuffer.substr(startOffset, cursor - startOffset));
+                        }
+                        // else if(edge_kind==EDGE_KIND_ITEMS){
+                        //     std::get<1>(vertices[parentStack[parentStack.size()-2].vertex_id]).type_mask|=parse_schema_type_token(jsonBuffer.substr(startOffset, cursor - startOffset));
+                        // }
+                        else if(schemaContext==DATAKEY_MODE || edge_kind==EDGE_KIND_TYPE || edge_kind==EDGE_KIND_ITEMS || std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_PROPERTIES || std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_REF || !is_schema_keyword(current_key)){
+                            vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
+                            raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
+                            child_counts[parent_id]++;
+                        }
+                        else std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
                         keyStart = 0;
                         keyEnd = 0;
                     }
                     else if(!hitColon){
                         keyStart=startOffset;
                         keyEnd=cursor;
+                        std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
+                        size_t parent_id=parentStack.empty() ? 0 : parentStack.back().vertex_id;
+                        SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && current_key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
+                        EDGE_KIND edge_kind=getEdgeKind(current_key);
+                        if(schemaContext!=DATAKEY_MODE && std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_REQUIRED){
+                            size_t owner_id = parentStack.back().vertex_id;
+                            pendingRequired.emplace(owner_id, current_key);
+                        }
+                        else if(schemaContext!=DATAKEY_MODE && edge_kind==EDGE_KIND_ITEMS){
+                            //std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
+                        }
+                        else if(schemaContext==DATAKEY_MODE && edge_kind==EDGE_KIND_PROPERTIES){
+                            std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
+                        }
+                        // if(schemaContext!=DATAKEY_MODE && is_schema_keyword(current_key))
+                        //     std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
+                        // else if(current_key==u8"properties")
+                        //     std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=EDGE_KIND_PROPERTIES;
+                        // else
+                        //     std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=EDGE_KIND_AST;
                     }
                     else{
                         size_t idx1 = vertices.size();
                         std::u8string_view current_key = (keyEnd > keyStart) ? jsonBuffer.substr(keyStart, keyEnd - keyStart) : u8"";
                         if(is_schema_keyword(current_key) && !is_keyword_implemented(current_key)) {
                         }
-                        size_t parent_id=parentStack.empty() ? 0 : parentStack.back();
-                        SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && std::get<1>(vertices[parentStack.back()]).key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
-                        EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back()]).key);
-                        if(hasParentalSyntax(vertices, parentStack)){
-                            parent_id=parentStack[parentStack.size()-2];
-                        }
+                        EDGE_KIND edge_kind=getEdgeKind(current_key);
+                        size_t parent_id=parentStack.empty() ? 0 : parentStack.back().vertex_id;
+                        SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && current_key==u8"properties") ? DATAKEY_MODE : SCHEMA_MODE;
                         if (edge_kind!=EDGE_KIND_PROPERTIES && (current_key == u8"$schema" || current_key == u8"$id" || current_key == u8"$comment" || current_key == u8"title" || current_key == u8"description"
                               || current_key == u8"tsType" || current_key == u8"examples" || current_key == u8"vocabulary")) {
                             cursor++;
@@ -475,29 +714,28 @@ namespace sylvanmats::metaphrase{
                             }
                             continue;
                         }
-                        if(current_key==u8"$ref"){
-                            schemaContext=DATAKEY_MODE;
+                        if(edge_kind==EDGE_KIND_REF){
+                            //schemaContext=SCHEMA_MODE;
                             if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/definitions/"))startOffset+=14;
                             else if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/$defs/"))startOffset+=8;
-                            // gbnfAcc.append("\n\t#ref 2 ");
-                            // gbnfAcc.append(jsonBuffer.substr(keyStart, keyEnd - keyStart));
-                            // gbnfAcc.append(" ");
-                            // gbnfAcc.append(jsonBuffer.substr(startOffset, cursor - startOffset));
-                            // gbnfAcc.append("\n");
-                            //rule_symbol_names[idx1]=jsonBuffer.substr(startOffset, cursor - startOffset);
-                        }
-                         vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
-                        // if(vertices.size()>1 && (schemaContext==SCHEMA_MODE)){
+                            vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(startOffset, cursor - startOffset), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
                             raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
                             child_counts[parent_id]++;
-                        // if(current_key==u8"type"){
-                        //     gbnfAcc.append("\n\t#type  child_counts ");
-                        //     gbnfAcc.append(std::to_string(child_counts[parent_id]));
-                        //     gbnfAcc.append(" ");
-                        //     gbnfAcc.append(std::to_string(parent_id));
-                        //     gbnfAcc.append("\n");
-                        // }
-                        // }
+                        }
+                        else if(edge_kind==EDGE_KIND_REQUIRED){
+                            size_t owner_id = parentStack.back().vertex_id;
+                            pendingRequired.emplace(owner_id, jsonBuffer.substr(startOffset, cursor - startOffset));
+                        }
+                        else if(edge_kind==EDGE_KIND_TYPE){
+                            std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
+                            std::get<1>(vertices[parentStack.back().vertex_id]).type_mask|=parse_schema_type_token(jsonBuffer.substr(startOffset, cursor - startOffset));
+                        }
+                        else if(schemaContext==DATAKEY_MODE || edge_kind==EDGE_KIND_PROPERTIES || edge_kind==EDGE_KIND_REF || edge_kind==EDGE_KIND_TYPE || !is_schema_keyword(current_key)){
+                            vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=current_key, .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
+                            raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
+                            child_counts[parent_id]++;
+                        }
+                        // else std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
                         hitColon=false;
                         hitComma=false;
                         keyStart = 0;
@@ -516,13 +754,13 @@ namespace sylvanmats::metaphrase{
                     EDGE_KIND edge_kind=EDGE_KIND_AST;
                     if(hitPeriod){
                         size_t idx1 = vertices.size();
-                        vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back().vertex_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, edge_kind});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
                     else{
                         size_t idx1 = vertices.size();
-                        vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back(), .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
+                        vertices.emplace(idx1, jobject{.obj_type=JSON_NUMBER, .id=idx1, .parent_id=parentStack.back().vertex_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(itStart, cursor - itStart), .depth=parentStack.size()});
                         raw_edges.push(RawEdge{std::get<1>(vertices.back()).parent_id, idx1, edge_kind});
                         child_counts[std::get<1>(vertices.back()).parent_id]++;
                     }
@@ -578,79 +816,35 @@ namespace sylvanmats::metaphrase{
                 edge_offsets[src]++;
                 edges[target_slot] = std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>{src, dest, raw_edges[i].edge_kind, raw_edges[i].context};
             }
-            // 1. Storage bounds matching your structural limits
-            std::array<size_t, MaxNodes> edge_start_idx{};
-            size_t sum = 0;
-            for (size_t i = 0; i < vertices.size(); ++i) {
-                edge_start_idx[i] = sum;
-                sum += child_counts[i];
-            }
-
-            std::array<cairns::fixed_accumulator<4096>, TotalRuleSlots> vertex_rules{};
-            traverse_gbnf_graph(vertices, edges, edge_start_idx, ref_table, child_counts, rule_symbol_names, vertex_rules, tail_features);
-            // cairns::fixed_accumulator<65536> gbnfAcc{};
-            gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
-            gbnfAcc.append("# Generated automatically from source JSON Schema definitions\n\n");
-
-            for (size_t idx = 0; idx < MaxNodes; idx++) {
-                if (!rule_symbol_names[idx].empty()) {
-                    gbnfAcc.append("#By symbol: ");
-                    gbnfAcc.append_int(idx);
-                    gbnfAcc.append(" ::= ");
-                    gbnfAcc.append(rule_symbol_names[idx]);
-                    gbnfAcc.append("\n");
+            if(debug){
+                cairns::graph_printer<AccumulatorSize> printer{};
+                cairns::dfs(vertices, edges, printer, 0);
+                printer.out+="\n";
+                for (size_t i = 0; i < edges.size(); ++i) {
+                    printer.out+="# ";
+                    printer.out.append_uint(std::get<0>(edges[i]));
+                    printer.out+=" ";
+                    printer.out.append_uint(std::get<1>(edges[i]));
+                    printer.out+=" ";
+                    printer.out.append_uint(std::get<2>(edges[i]));
+                    printer.out+=" ";
+                    printer.out.append_uint(std::get<3>(edges[i]));
+                    printer.out+="\n";
                 }
+                return printer.out;
             }
-            
-            // 2. Linear Sweep to attach names and merge all compiled vertex rules
-            for (size_t idx = 0; idx < TotalRuleSlots; ++idx) {
-                if (vertex_rules[idx].size() > 0) {
-                    
-                    // --- STEP A: STAMP OUT THE SYNTHETIC OR BASE RULE NAME ---
-                    if (idx >= MaxNodes * 2) {
-                        // Zone 3: Synthetic Array Item Sub-Blocks
-                        gbnfAcc.append("item-block-");
-                        gbnfAcc.append_int(idx);
-                    } 
-                    else if (idx >= MaxNodes) {
-                        size_t edge_idx = idx - MaxNodes;
-                        // Pure, zero-allocation architectural lookup
-                        if (std::get<2>(edges[edge_idx]) == EDGE_KIND_PATTERN_PROPERTIES) {
-                            gbnfAcc.append("pattern-key-");
-                        } else {
-                            gbnfAcc.append("property-slice-");
-                        }
-                        gbnfAcc.append_int(idx);
-                    } 
-                    else {
-                        // Zone 1: Core Schema Nodes (Pure non-recursive pointer mapping)
-                        if (idx == 0) {
-                            gbnfAcc.append("root"); // Forces rule index 0 to act as the mandatory GBNF root entry
-                        } 
-                        else if (!rule_symbol_names[idx].empty()) {
-                            gbnfAcc.append(rule_symbol_names[idx]); 
-                        } else {
-                            gbnfAcc.append("branch-");
-                            gbnfAcc.append_int(idx);
-                        }
-                    }
+            else{
+                gbnf_emitter<AccumulatorSize> emitter{};
+                cairns::dfs(vertices, edges, emitter, 0);
+                //emitter.out += BUILTIN_GBNF_PRIMITIVES; // your standard ws, string, integer, number, boolean, value rules
+            if(tail_features.needs_email)emitter.out += R"(format-email ::= "\"" [a-zA-Z0-9._%+-]+ "@" [a-zA-Z0-9.-]+ "." [a-zA-Z]{2,} "\""
+)";
+            if(tail_features.needs_uri)emitter.out += R"(format-uri ::= "\"" "https://" [a-zA-Z0-9./?=&_-]+ "\""
+)";
+            if(tail_features.needs_date_time)emitter.out += R"(format-date-time ::= "\"" [0-9]{4} "-" [0-9]{2} "-" [0-9]{2} "T" [0-9]{2} ":" [0-9]{2} ":" [0-9]{2} "Z" "\""
+)";
 
-                    // --- STEP B: STITCH THE PRODUCTION SYMBOL AND APPEND THE VALUE BUFFER ---
-                    gbnfAcc.append(" ::= ");
-                    gbnfAcc.append(vertex_rules[idx].view());
-                    gbnfAcc.append("\n");
-                }
-            }
-
-
-            if(tail_features.needs_email)gbnfAcc.append(R"(format-email ::= "\"" [a-zA-Z0-9._%+-]+ "@" [a-zA-Z0-9.-]+ "." [a-zA-Z]{2,} "\""
-)");
-            if(tail_features.needs_uri)gbnfAcc.append(R"(format-uri ::= "\"" "https://" [a-zA-Z0-9./?=&_-]+ "\""
-)");
-            if(tail_features.needs_date_time)gbnfAcc.append(R"(format-date-time ::= "\"" [0-9]{4} "-" [0-9]{2} "-" [0-9]{2} "T" [0-9]{2} ":" [0-9]{2} ":" [0-9]{2} "Z" "\""
-)");
-
-            gbnfAcc.append(R"(
+            emitter.out += R"(
 # --- Fundamental JSON Primitive & Structural Types ---
 ws ::= [ \t\n\r]*
 string ::= "\"" [^"\\]* "\""
@@ -663,680 +857,786 @@ null ::= "null"
 value  ::= object | array | string | number | boolean | null
 object ::= "{" ws ( string ws ":" ws value ( ws "," ws string ws ":" ws value )* ws )? "}"
 array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
-)");
+)";
+                return emitter.out;                
+            }
+//             // 1. Storage bounds matching your structural limits
+//             std::array<size_t, MaxNodes> edge_start_idx{};
+//             size_t sum = 0;
+//             for (size_t i = 0; i < vertices.size(); ++i) {
+//                 edge_start_idx[i] = sum;
+//                 sum += child_counts[i];
+//             }
 
-            return cairns::fixed_string<AccumulatorSize>(gbnfAcc.data(), gbnfAcc.size());
+//             std::array<cairns::fixed_accumulator<4096>, TotalRuleSlots> vertex_rules{};
+//             traverse_gbnf_graph(vertices, edges, edge_start_idx, ref_table, child_counts, rule_symbol_names, vertex_rules, tail_features);
+//             // cairns::fixed_accumulator<65536> gbnfAcc{};
+//             gbnfAcc.append("# --- METAPHRASED LLAMA COMPATIBLE GBNF GRAMMAR ---\n");
+//             gbnfAcc.append("# Generated automatically from source JSON Schema definitions\n\n");
+
+//             for (size_t idx = 0; idx < MaxNodes; idx++) {
+//                 if (!rule_symbol_names[idx].empty()) {
+//                     gbnfAcc.append("#By symbol: ");
+//                     gbnfAcc.append_int(idx);
+//                     gbnfAcc.append(" ::= ");
+//                     gbnfAcc.append(rule_symbol_names[idx]);
+//                     gbnfAcc.append("\n");
+//                 }
+//             }
+            
+//             // 2. Linear Sweep to attach names and merge all compiled vertex rules
+//             for (size_t idx = 0; idx < TotalRuleSlots; ++idx) {
+//                 if (vertex_rules[idx].size() > 0) {
+                    
+//                     // --- STEP A: STAMP OUT THE SYNTHETIC OR BASE RULE NAME ---
+//                     if (idx >= MaxNodes * 2) {
+//                         // Zone 3: Synthetic Array Item Sub-Blocks
+//                         gbnfAcc.append("item-block-");
+//                         gbnfAcc.append_int(idx);
+//                     } 
+//                     else if (idx >= MaxNodes) {
+//                         size_t edge_idx = idx - MaxNodes;
+//                         // Pure, zero-allocation architectural lookup
+//                         if (std::get<2>(edges[edge_idx]) == EDGE_KIND_PATTERN_PROPERTIES) {
+//                             gbnfAcc.append("pattern-key-");
+//                         } else {
+//                             gbnfAcc.append("property-slice-");
+//                         }
+//                         gbnfAcc.append_int(idx);
+//                     } 
+//                     else {
+//                         // Zone 1: Core Schema Nodes (Pure non-recursive pointer mapping)
+//                         /*if (idx == 0) {
+//                             gbnfAcc.append("root"); // Forces rule index 0 to act as the mandatory GBNF root entry
+//                         } 
+//                         else */if (!rule_symbol_names[idx].empty()) {
+//                             gbnfAcc.append(rule_symbol_names[idx]); 
+//                         } else {
+//                             gbnfAcc.append("branch-");
+//                             gbnfAcc.append_int(idx);
+//                         }
+//                     }
+
+//                     // --- STEP B: STITCH THE PRODUCTION SYMBOL AND APPEND THE VALUE BUFFER ---
+//                     gbnfAcc.append(" ::= ");
+//                     gbnfAcc.append(vertex_rules[idx].view());
+//                     gbnfAcc.append("\n");
+//                 }
+//             }
+
+
+//             if(tail_features.needs_email)gbnfAcc.append(R"(format-email ::= "\"" [a-zA-Z0-9._%+-]+ "@" [a-zA-Z0-9.-]+ "." [a-zA-Z]{2,} "\""
+// )");
+//             if(tail_features.needs_uri)gbnfAcc.append(R"(format-uri ::= "\"" "https://" [a-zA-Z0-9./?=&_-]+ "\""
+// )");
+//             if(tail_features.needs_date_time)gbnfAcc.append(R"(format-date-time ::= "\"" [0-9]{4} "-" [0-9]{2} "-" [0-9]{2} "T" [0-9]{2} ":" [0-9]{2} ":" [0-9]{2} "Z" "\""
+// )");
+
+//             gbnfAcc.append(R"(
+// # --- Fundamental JSON Primitive & Structural Types ---
+// ws ::= [ \t\n\r]*
+// string ::= "\"" [^"\\]* "\""
+// number ::= [0-9]+ ("." [0-9]+)?
+// integer ::= [0-9]+
+// boolean ::= "true" | "false"
+// null ::= "null"
+
+// # --- Generic JSON Schema Structural Fallbacks ---
+// value  ::= object | array | string | number | boolean | null
+// object ::= "{" ws ( string ws ":" ws value ( ws "," ws string ws ":" ws value )* ws )? "}"
+// array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
+// )");
+
+//             return cairns::fixed_string<AccumulatorSize>(gbnfAcc.data(), gbnfAcc.size());
         }
 
     private:
-        template<size_t VCapacity, size_t ECapacity>
-        constexpr void traverse_gbnf_graph(
-            const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
-            const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
-            const std::array<size_t, VCapacity>& edge_start_idx,
-            cairns::fixed_map<std::u8string_view, size_t, VCapacity>& ref_table,
-            std::array<size_t, VCapacity>& child_counts,
-            std::array<std::u8string_view, MaxNodes>& rule_symbol_names,
-            std::array<cairns::fixed_accumulator<4096>, TotalRuleSlots>& vertex_rules, GBNFTailFeatures& tail_features
-        ) {
-            if (vertices.size() <= 1) return;
-            // 1. Explicit visitor stack replacing runtime/compiler call recursion
-            cairns::fixed_stack<DFSState, 128> traversal_stack;
+        // template<size_t VCapacity, size_t ECapacity>
+        // constexpr void traverse_gbnf_graph(
+        //     const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices,
+        //     const cairns::fixed_stack<std::tuple<size_t, size_t, EDGE_KIND, SCHEMA_CONTEXT>, ECapacity>& edges,
+        //     const std::array<size_t, VCapacity>& edge_start_idx,
+        //     cairns::fixed_map<std::u8string_view, size_t, VCapacity>& ref_table,
+        //     std::array<size_t, VCapacity>& child_counts,
+        //     std::array<std::u8string_view, MaxNodes>& rule_symbol_names,
+        //     std::array<cairns::fixed_accumulator<4096>, TotalRuleSlots>& vertex_rules, GBNFTailFeatures& tail_features
+        // ) {
+        //     if (vertices.size() <= 1) return;
+        //     // 1. Explicit visitor stack replacing runtime/compiler call recursion
+        //     cairns::fixed_stack<DFSState, 128> traversal_stack;
             
-            // 2. Visited map to guard against recursive schema definitions ($ref cycles)
-            std::array<bool, VCapacity> visited{};
-            visited.fill(false);
+        //     // 2. Visited map to guard against recursive schema definitions ($ref cycles)
+        //     std::array<bool, VCapacity> visited{};
+        //     visited.fill(false);
 
-            // Push root vertex (assumed to be index 0)
-            traversal_stack.push(DFSState{0, 0, 0});
-            visited[0] = true;
+        //     // Push root vertex (assumed to be index 0)
+        //     traversal_stack.push(DFSState{0, 0, 0});
+        //     visited[0] = true;
 
-            size_t offset_edge_idx=0;
-            size_t highest_vertex_id=0;
-            while (!traversal_stack.empty()) {
-                auto& state = traversal_stack.back();
-                size_t u = state.vertex_id;
-                const auto& u_obj = std::get<1>(vertices[u]);
-                size_t active_slot = state.target_rule_slot;
-                size_t current_idx = active_slot;
+        //     size_t offset_edge_idx=0;
+        //     size_t highest_vertex_id=0;
+        //     size_t root_index=0;
+        //     while (!traversal_stack.empty()) {
+        //         auto& state = traversal_stack.back();
+        //         size_t u = state.vertex_id;
+        //         const auto& u_obj = std::get<1>(vertices[u]);
+        //         size_t active_slot = state.target_rule_slot;
+        //         size_t current_idx = active_slot;
 
-                if(u_obj.obj_type==JSON_OBJECT && u==0 && child_counts[u]==1 && std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key==u8"type"){
-                    vertex_rules[active_slot].append("\"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
-                    if (!visited[u]) {
-                    visited[u] = true;
-                    }
-                    traversal_stack.pop();
-                    break;
-                }
-                
-                if(is_schema_keyword(u_obj.key) && child_counts[u]==0){
-                    if (!visited[u] && !is_keyword_implemented(u_obj.key)) {
-                    }
-                    if (!visited[u]) {
-                    visited[u] = true;
-                    }
-                    traversal_stack.pop();
-                    offset_edge_idx=0;
-                }
-                else{
-                std::u8string_view rootType = findType(u, child_counts, vertices, edges, edge_start_idx);
-                std::u8string_view rootItems = findItems(u, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
-                // 1. Declare the rule name on entry
-                if (state.current_edge_idx == 0 && child_counts[u]>0) {
-                    // vertex_rules[active_slot].append(u_obj.key);
-                    // if(u_obj.key.empty()){
-                    //     vertex_rules[active_slot].append("-branch-");
-                    //     emit_size_t_as_string(vertex_rules[active_slot], u);
-                    //     vertex_rules[active_slot].append("-rule");
-                    // }
-                    // vertex_rules[active_slot].append(" ::= ");
-                    if (u_obj.obj_type == JSON_OBJECT && rootType==u8"object")vertex_rules[active_slot].append("\"{\" ws ");
-                    else if (u_obj.obj_type == JSON_OBJECT && rootType==u8"array"){
-                        vertex_rules[active_slot].append("\"[\" ws ");
-                        if(!rootItems.empty()){
-                            size_t next_edge = edge_start_idx[u] + 0;
-                            size_t v = std::get<1>(edges[next_edge]);
-                            const auto& v_obj = std::get<1>(vertices[v]);
-                            if(!visited[v]){
-                            current_idx = (MaxNodes * 2) + next_edge;
-                            vertex_rules[active_slot].append(" item-block-");
-                            vertex_rules[active_slot].append_int(current_idx);
-                            vertex_rules[active_slot].append(" ( ws \",\" ws item-block-");
-                            vertex_rules[active_slot].append_int(current_idx);
-                            vertex_rules[active_slot].append(" )* ");
-                            // vertex_rules[items_idx].append("item-block-");
-                            // vertex_rules[items_idx].append_int(items_idx);
-                            // vertex_rules[items_idx].append(" ::= ");
-                            // traversal_stack.push(DFSState{v, 0, current_idx});
-                            // offset_edge_idx=0;
-                            // visited[v]=true;
-                            //continue;
-                            active_slot=current_idx;
-                            // vertex_rules[active_slot].append("# start item array");
-                            // vertex_rules[active_slot].append_int(current_idx);
-                            // vertex_rules[active_slot].append(" ");
-                            // vertex_rules[active_slot].append_int(child_counts[u]);
-                            // vertex_rules[active_slot].append("\n");
-                            }
-                        }
-                    }
-                }
-
-                cairns::fixed_stack<std::u8string_view, 128> required_stack;
-                findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
-                std::array<property_sort_entry, 64> prop_pipeline{};
-                size_t actual_prop_count = 0;
-
-                for (size_t i = 0; i < child_counts[u]; ++i) {
-                    size_t next_edge = edge_start_idx[u] + i;
+        //         if(u_obj.obj_type==JSON_ROOT){
+        //             if (!visited[u]) {
+        //             visited[u] = true;
+        //             }
+        //             if(root_index >= child_counts[u])break;
+        //             size_t next_edge = edge_start_idx[u] + root_index;
                     
-                    if (std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES &&!visited[std::get<1>(edges[next_edge])]) {
-                        size_t v = std::get<1>(edges[next_edge]);
-                        if(!visited[v]){
-                        bool required = required_stack.anyOf(std::get<1>(vertices[v]).key);
+        //             size_t v = std::get<1>(edges[next_edge]);
+        //             traversal_stack.push(DFSState{v, 0, current_idx});
+        //             offset_edge_idx=0;
+        //             root_index++;
+        //             continue;
+        //         }
+        //         if(u_obj.obj_type==JSON_OBJECT && u==0 && child_counts[u]==1 && std::get<1>(vertices[std::get<1>(edges[edge_start_idx[u]])]).key==u8"type"){
+        //             vertex_rules[active_slot].append("\"{\" ws ( string ws \":\" ws value ( ws \",\" ws string ws \":\" ws value )* )? \"}\"\n");
+        //             if (!visited[u]) {
+        //             visited[u] = true;
+        //             }
+        //             traversal_stack.pop();
+        //             break;
+        //         }
+                
+        //         if(is_schema_keyword(u_obj.key) && child_counts[u]==0){
+        //             if (!visited[u] && !is_keyword_implemented(u_obj.key)) {
+        //             }
+        //             if (!visited[u]) {
+        //             visited[u] = true;
+        //             }
+        //             traversal_stack.pop();
+        //             offset_edge_idx=0;
+        //         }
+        //         else{
+        //         std::u8string_view rootType = findType(u, child_counts, vertices, edges, edge_start_idx);
+        //         std::u8string_view rootItems = findItems(u, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+        //         // 1. Declare the rule name on entry
+        //         if (state.current_edge_idx == 0 && child_counts[u]>0) {
+        //             // vertex_rules[active_slot].append(u_obj.key);
+        //             // if(u_obj.key.empty()){
+        //             //     vertex_rules[active_slot].append("-branch-");
+        //             //     emit_size_t_as_string(vertex_rules[active_slot], u);
+        //             //     vertex_rules[active_slot].append("-rule");
+        //             // }
+        //             // vertex_rules[active_slot].append(" ::= ");
+        //             if (u_obj.obj_type == JSON_OBJECT && rootType==u8"object")vertex_rules[active_slot].append("\"{\" ws ");
+        //             else if (u_obj.obj_type == JSON_OBJECT && rootType==u8"array"){
+        //                 vertex_rules[active_slot].append("\"[\" ws ");
+        //                 if(!rootItems.empty()){
+        //                     size_t next_edge = edge_start_idx[u] + 0;
+        //                     size_t v = std::get<1>(edges[next_edge]);
+        //                     const auto& v_obj = std::get<1>(vertices[v]);
+        //                     if(!visited[v]){
+        //                     current_idx = (MaxNodes * 2) + next_edge;
+        //                     vertex_rules[active_slot].append(" item-block-");
+        //                     vertex_rules[active_slot].append_int(current_idx);
+        //                     vertex_rules[active_slot].append(" ( ws \",\" ws item-block-");
+        //                     vertex_rules[active_slot].append_int(current_idx);
+        //                     vertex_rules[active_slot].append(" )* ");
+        //                     // vertex_rules[items_idx].append("item-block-");
+        //                     // vertex_rules[items_idx].append_int(items_idx);
+        //                     // vertex_rules[items_idx].append(" ::= ");
+        //                     // traversal_stack.push(DFSState{v, 0, current_idx});
+        //                     // offset_edge_idx=0;
+        //                     // visited[v]=true;
+        //                     //continue;
+        //                     active_slot=current_idx;
+        //                     // vertex_rules[active_slot].append("# start item array");
+        //                     // vertex_rules[active_slot].append_int(current_idx);
+        //                     // vertex_rules[active_slot].append(" ");
+        //                     // vertex_rules[active_slot].append_int(child_counts[u]);
+        //                     // vertex_rules[active_slot].append("\n");
+        //                     }
+        //                 }
+        //             }
+        //         }
+
+        //         cairns::fixed_stack<std::u8string_view, 128> required_stack;
+        //         findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
+        //         std::array<property_sort_entry, 64> prop_pipeline{};
+        //         size_t actual_prop_count = 0;
+
+        //         for (size_t i = 0; i < child_counts[u]; ++i) {
+        //             size_t next_edge = edge_start_idx[u] + i;
+                    
+        //             if (std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES &&!visited[std::get<1>(edges[next_edge])]) {
+        //                 size_t v = std::get<1>(edges[next_edge]);
+        //                 if(!visited[v]){
+        //                 bool required = required_stack.anyOf(std::get<1>(vertices[v]).key);
                         
-                        prop_pipeline[actual_prop_count++] = property_sort_entry{
-                            .edge_idx = next_edge,
-                            .v_node = v,
-                            .is_required = required
-                        };
-                    }
-                    }
-                }
-                std::stable_partition(prop_pipeline.begin(), prop_pipeline.begin() + actual_prop_count,
-                    [](const property_sort_entry& entry) {
-                        return entry.is_required; // Required elements move to the front
-                    });
+        //                 prop_pipeline[actual_prop_count++] = property_sort_entry{
+        //                     .edge_idx = next_edge,
+        //                     .v_node = v,
+        //                     .is_required = required
+        //                 };
+        //             }
+        //             }
+        //         }
+        //         std::stable_partition(prop_pipeline.begin(), prop_pipeline.begin() + actual_prop_count,
+        //             [](const property_sort_entry& entry) {
+        //                 return entry.is_required; // Required elements move to the front
+        //             });
 
-                bool is_first_field = true;
+        //         bool is_first_field = true;
 
-                // if(!rootItems.empty()){
-                //     vertex_rules[active_slot].append("# actual_prop_count ");
-                //     vertex_rules[active_slot].append_int(actual_prop_count);
-                //     vertex_rules[active_slot].append(" ");
-                //     vertex_rules[active_slot].append(rootItems);
-                //     vertex_rules[active_slot].append(" ");
-                //     vertex_rules[active_slot].append(rootType);
-                //     vertex_rules[active_slot].append(" ");
-                //     vertex_rules[active_slot].append(u_obj.key);
-                //     vertex_rules[active_slot].append(" ");
-                //     vertex_rules[active_slot].append_int(child_counts[u]);
-                //     vertex_rules[active_slot].append("\n");
-                // }
-                for (size_t i = 0; i < actual_prop_count; ++i) {
-                    const auto& entry = prop_pipeline[i];
-                    auto v = entry.v_node;
-                    const auto& v_obj = std::get<1>(vertices[entry.v_node]);
+        //         // if(!rootItems.empty()){
+        //         //     vertex_rules[active_slot].append("# actual_prop_count ");
+        //         //     vertex_rules[active_slot].append_int(actual_prop_count);
+        //         //     vertex_rules[active_slot].append(" ");
+        //         //     vertex_rules[active_slot].append(rootItems);
+        //         //     vertex_rules[active_slot].append(" ");
+        //         //     vertex_rules[active_slot].append(rootType);
+        //         //     vertex_rules[active_slot].append(" ");
+        //         //     vertex_rules[active_slot].append(u_obj.key);
+        //         //     vertex_rules[active_slot].append(" ");
+        //         //     vertex_rules[active_slot].append_int(child_counts[u]);
+        //         //     vertex_rules[active_slot].append("\n");
+        //         // }
+        //         for (size_t i = 0; i < actual_prop_count; ++i) {
+        //             const auto& entry = prop_pipeline[i];
+        //             auto v = entry.v_node;
+        //             const auto& v_obj = std::get<1>(vertices[entry.v_node]);
 
-                    // vertex_rules[active_slot].append("#prop_pipeline ");
-                    // vertex_rules[active_slot].append_int(i);
-                    // vertex_rules[active_slot].append(" ");
-                    // vertex_rules[active_slot].append(v_obj.key);
-                    // vertex_rules[active_slot].append(" ");
-                    // vertex_rules[active_slot].append(v_obj.value);
-                    // vertex_rules[active_slot].append("\n");
-                    if(size_t* r=nullptr; (r = ref_table.find(v_obj.value)) && false){
-                        const auto& r_obj=std::get<1>(vertices[*r]);
-                        if(entry.is_required){
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            vertex_rules[active_slot].append(r_obj.key);
-                        }
-                        else{
-                            vertex_rules[active_slot].append(" ( ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            // vertex_rules[active_slot].append(r_obj.key);
-                            if(!entry.is_required)vertex_rules[active_slot].append(" )? ");
-                        }
-                        vertex_rules[active_slot].append(" ws ");
-                        // rule_symbol_names[*r] = v_obj.key;
-                        visited[v]=true;
+        //             if(size_t* r=nullptr; (r = ref_table.find(v_obj.value))!=nullptr){
+        //                 const auto& r_obj=std::get<1>(vertices[*r]);
+        //                 if(entry.is_required){
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     vertex_rules[active_slot].append(r_obj.value);
+        //                 }
+        //                 else{
+        //                     vertex_rules[active_slot].append(" ( ");
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                      vertex_rules[active_slot].append(r_obj.value);
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" )? ");
+        //                 }
+        //                 vertex_rules[active_slot].append(" ws ");
+        //                 // rule_symbol_names[*r] = v_obj.key;
+        //                 visited[v]=true;
 
-                    }
-                    else if(std::get<2>(edges[entry.edge_idx]) == EDGE_KIND_PROPERTIES){
-                        // cairns::fixed_stack<std::u8string_view, 128> required_stack;
-                        // findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
-                        size_t inner_edge = edge_start_idx[v] + 0;
-                        size_t w = std::get<1>(edges[inner_edge]);
-                        const auto& w_obj = std::get<1>(vertices[w]);
-                        if(highest_vertex_id<=w)highest_vertex_id=w+1;
-                        std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
-                        std::u8string_view constant = find(u8"const", EDGE_KIND_CONST, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
-                        std::u8string_view format = find(u8"format", EDGE_KIND_FORMAT, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
-                        std::u8string_view pattern = find(u8"pattern", EDGE_KIND_PATTERN, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
-                        std::u8string_view defaultValue = find(u8"default", EDGE_KIND_DEFAULT, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
-                        std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
-                        std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
-                        cairns::fixed_stack<std::u8string_view, 128> enumerated_array;
-                        findEnumerationArray(v, child_counts, vertices, edges, edge_start_idx, enumerated_array);
-                        cairns::fixed_stack<std::u8string_view, 128> prefix_items_array;
-                        findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
-                        size_t synthetic_idx = (rootItems.empty())? MaxNodes + entry.edge_idx : active_slot;
-                        if(size_t* r=nullptr; (r = ref_table.find(w_obj.value)) && std::get<2>(edges[inner_edge]) == EDGE_KIND_REF && false){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
-                            }
+        //             }
+        //             else if(std::get<2>(edges[entry.edge_idx]) == EDGE_KIND_PROPERTIES){
+        //                 // cairns::fixed_stack<std::u8string_view, 128> required_stack;
+        //                 // findRequiredArray(u, child_counts, vertices, edges, edge_start_idx, required_stack);
+        //                 size_t inner_edge = edge_start_idx[v] + 0;
+        //                 size_t w = std::get<1>(edges[inner_edge]);
+        //                 const auto& w_obj = std::get<1>(vertices[w]);
+        //                 if(highest_vertex_id<=w)highest_vertex_id=w+1;
+        //                 std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
+        //                 std::u8string_view constant = find(u8"const", EDGE_KIND_CONST, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+        //                 std::u8string_view format = find(u8"format", EDGE_KIND_FORMAT, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+        //                 std::u8string_view pattern = find(u8"pattern", EDGE_KIND_PATTERN, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+        //                 std::u8string_view defaultValue = find(u8"default", EDGE_KIND_DEFAULT, v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+        //                 std::u8string_view&& items = findItems(v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+        //                 std::u8string_view&& additionalProperties = findAdditionalProperties(v, child_counts, vertices, edges, edge_start_idx, ref_table, rule_symbol_names);
+        //                 cairns::fixed_stack<std::u8string_view, 128> enumerated_array;
+        //                 findEnumerationArray(v, child_counts, vertices, edges, edge_start_idx, enumerated_array);
+        //                 cairns::fixed_stack<std::u8string_view, 128> prefix_items_array;
+        //                 findPrefixItemsArray(v, child_counts, vertices, edges, edge_start_idx, prefix_items_array);
+        //                 size_t synthetic_idx = (rootItems.empty())? MaxNodes + entry.edge_idx : active_slot;
+        //                 /*if(size_t* r=nullptr; (r = ref_table.find(w_obj.value)) && std::get<2>(edges[inner_edge]) == EDGE_KIND_REF && false){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                     if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     is_first_field = false;
+        //                     }
 
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            vertex_rules[active_slot].append(std::get<1>(vertices[*r]).key);
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                            visited[v]=true;
-                            visited[w]=true;
-                            rule_symbol_names[*r]=w_obj.value;
-                            is_first_field = false;
-                        }
-                        else if(!constant.empty() && !type.empty()){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
-                            }
+        //                     if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     vertex_rules[active_slot].append(std::get<1>(vertices[*r]).key);
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                     visited[v]=true;
+        //                     visited[w]=true;
+        //                     // rule_symbol_names[*r]=w_obj.value;
+        //                     is_first_field = false;
+        //                 }
+        //                 else*/ if(!constant.empty() && !type.empty()){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                     if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     is_first_field = false;
+        //                     }
 
-                            vertex_rules[active_slot].append("\"\\\"");
-                            vertex_rules[active_slot].append(constant);
-                            vertex_rules[active_slot].append("\\\"\"");
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                            // visited[w]=true;
-                            visited[v]=true;
-                            is_first_field = false;
-                        }
-                        else if(!format.empty() && !type.empty()){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
-                            }
+        //                     vertex_rules[active_slot].append("\"\\\"");
+        //                     vertex_rules[active_slot].append(constant);
+        //                     vertex_rules[active_slot].append("\\\"\"");
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                     // visited[w]=true;
+        //                     visited[v]=true;
+        //                     is_first_field = false;
+        //                 }
+        //                 else if(!format.empty() && !type.empty()){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                     if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     is_first_field = false;
+        //                     }
 
-                            if(format==u8"email"){
-                                vertex_rules[active_slot].append(u8"format-email");
-                               tail_features.needs_email=true;
-                            }
-                            else if(format==u8"uri"){
-                                vertex_rules[active_slot].append(u8"format-uri");
-                               tail_features.needs_uri=true;
-                            }
-                            else if(format==u8"date-time"){
-                                vertex_rules[active_slot].append(u8"format-date-time");
-                               tail_features.needs_date_time=true;
-                            }
-                            // (type==u8"string") ? vertex_rules[active_slot].append("\\\"\"") : vertex_rules[active_slot].append("\"");
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                            // visited[w]=true;
-                            visited[v]=true;
-                            is_first_field = false;
-                        }
-                        else if(!pattern.empty() && !type.empty()){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                                if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                                vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                                is_first_field = false;
-                            }
+        //                     if(format==u8"email"){
+        //                         vertex_rules[active_slot].append(u8"format-email");
+        //                        tail_features.needs_email=true;
+        //                     }
+        //                     else if(format==u8"uri"){
+        //                         vertex_rules[active_slot].append(u8"format-uri");
+        //                        tail_features.needs_uri=true;
+        //                     }
+        //                     else if(format==u8"date-time"){
+        //                         vertex_rules[active_slot].append(u8"format-date-time");
+        //                        tail_features.needs_date_time=true;
+        //                     }
+        //                     // (type==u8"string") ? vertex_rules[active_slot].append("\\\"\"") : vertex_rules[active_slot].append("\"");
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                     // visited[w]=true;
+        //                     visited[v]=true;
+        //                     is_first_field = false;
+        //                 }
+        //                 else if(!pattern.empty() && !type.empty()){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                         if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                         vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                         is_first_field = false;
+        //                     }
 
-                            vertex_rules[active_slot].append_regex_as_quoted_gbnf(pattern);
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                        }
-                        else if(!defaultValue.empty() && !type.empty()){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
-                            }
+        //                     vertex_rules[active_slot].append_regex_as_quoted_gbnf(pattern);
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                 }
+        //                 else if(!defaultValue.empty() && !type.empty()){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                     if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     is_first_field = false;
+        //                     }
 
-                            // if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            (type==u8"string") ? vertex_rules[active_slot].append("\"\\\"") : vertex_rules[active_slot].append("\"");
-                            vertex_rules[active_slot].append(defaultValue);
-                            (type==u8"string") ? vertex_rules[active_slot].append("\\\"\"") : vertex_rules[active_slot].append("\"");
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                            // visited[w]=true;
-                            visited[v]=true;
-                            is_first_field = false;
-                        }
-                        else if(!items.empty() && type==u8"array"){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                                if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                                vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                                is_first_field = false;
-                            }
+        //                     // if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                     (type==u8"string") ? vertex_rules[active_slot].append("\"\\\"") : vertex_rules[active_slot].append("\"");
+        //                     vertex_rules[active_slot].append(defaultValue);
+        //                     (type==u8"string") ? vertex_rules[active_slot].append("\\\"\"") : vertex_rules[active_slot].append("\"");
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                     // visited[w]=true;
+        //                     visited[v]=true;
+        //                     is_first_field = false;
+        //                 }
+        //                 else if(!items.empty() && type==u8"array"){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                         if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                         vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                         is_first_field = false;
+        //                     }
 
-                            vertex_rules[active_slot].append(" \"[\" ws ");
-                            vertex_rules[active_slot].append(items);
-                            vertex_rules[active_slot].append(" ( ws \",\" ws ");
-                            vertex_rules[active_slot].append(items);
-                            // vertex_rules[active_slot].append(" ws ");
-                            vertex_rules[active_slot].append(" ws )* \"]\"");
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                            visited[w]=true;
-                            visited[v]=true;
-                        }
-                        else if(prefix_items_array.size()>0){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
-                            }
-                            vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
-                            // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
-                            // vertex_rules[synthetic_idx].append(" ::= ");
-                            vertex_rules[synthetic_idx].append("\"[\" ws (");
-                            vertex_rules[synthetic_idx].append("\"[\" ");
-                            for(size_t piCount=0;piCount<prefix_items_array.size();piCount++){
-                                if(piCount>0){
-                                    vertex_rules[synthetic_idx].append("\",\" ");
-                                }
-                                vertex_rules[synthetic_idx].append(" ws ");
-                                vertex_rules[synthetic_idx].append(prefix_items_array[piCount]);
-                                vertex_rules[synthetic_idx].append(" ws ");
-                            }
-                            vertex_rules[synthetic_idx].append("\"]\" ");
-                            vertex_rules[synthetic_idx].append(" ( ws \",\" ws ");
-                            vertex_rules[synthetic_idx].append("\"[\" ");
-                            for(size_t piCount=0;piCount<prefix_items_array.size();piCount++){
-                                if(piCount>0){
-                                    vertex_rules[synthetic_idx].append("\",\" ");
-                                }
-                                vertex_rules[synthetic_idx].append(" ws ");
-                                vertex_rules[synthetic_idx].append(prefix_items_array[piCount]);
-                                vertex_rules[synthetic_idx].append(" ws ");
-                            }
-                            vertex_rules[synthetic_idx].append("\"]\")*)? ws \"]\" ");
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                            visited[w]=true;
-                            visited[v]=true;
-                        }
-                        else if(enumerated_array.size()>0){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                                if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                                vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                                is_first_field = false;
-                            }
+        //                     vertex_rules[active_slot].append(" \"[\" ws ");
+        //                     vertex_rules[active_slot].append(items);
+        //                     vertex_rules[active_slot].append(" ( ws \",\" ws ");
+        //                     vertex_rules[active_slot].append(items);
+        //                     // vertex_rules[active_slot].append(" ws ");
+        //                     vertex_rules[active_slot].append(" ws )* \"]\"");
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                     visited[w]=true;
+        //                     visited[v]=true;
+        //                 }
+        //                 else if(prefix_items_array.size()>0){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                     if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     is_first_field = false;
+        //                     }
+        //                     vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
+        //                     // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
+        //                     // vertex_rules[synthetic_idx].append(" ::= ");
+        //                     vertex_rules[synthetic_idx].append("\"[\" ws (");
+        //                     vertex_rules[synthetic_idx].append("\"[\" ");
+        //                     for(size_t piCount=0;piCount<prefix_items_array.size();piCount++){
+        //                         if(piCount>0){
+        //                             vertex_rules[synthetic_idx].append("\",\" ");
+        //                         }
+        //                         vertex_rules[synthetic_idx].append(" ws ");
+        //                         vertex_rules[synthetic_idx].append(prefix_items_array[piCount]);
+        //                         vertex_rules[synthetic_idx].append(" ws ");
+        //                     }
+        //                     vertex_rules[synthetic_idx].append("\"]\" ");
+        //                     vertex_rules[synthetic_idx].append(" ( ws \",\" ws ");
+        //                     vertex_rules[synthetic_idx].append("\"[\" ");
+        //                     for(size_t piCount=0;piCount<prefix_items_array.size();piCount++){
+        //                         if(piCount>0){
+        //                             vertex_rules[synthetic_idx].append("\",\" ");
+        //                         }
+        //                         vertex_rules[synthetic_idx].append(" ws ");
+        //                         vertex_rules[synthetic_idx].append(prefix_items_array[piCount]);
+        //                         vertex_rules[synthetic_idx].append(" ws ");
+        //                     }
+        //                     vertex_rules[synthetic_idx].append("\"]\")*)? ws \"]\" ");
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                     visited[w]=true;
+        //                     visited[v]=true;
+        //                 }
+        //                 else if(enumerated_array.size()>0){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                         if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                         vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                         is_first_field = false;
+        //                     }
 
-                            vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
-                            // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
-                            // vertex_rules[synthetic_idx].append(" ::= ");
-                            vertex_rules[synthetic_idx].append(" (");
-                            for(size_t eCount=0;eCount<enumerated_array.size();eCount++){
-                                if(eCount>0){
-                                    vertex_rules[synthetic_idx].append(" |");
-                                }
-                                vertex_rules[synthetic_idx].append(" ");
-                                if(type==u8"string")vertex_rules[synthetic_idx].append("\"\\\"");
-                                vertex_rules[synthetic_idx].append(enumerated_array[eCount]);
-                                if(type==u8"string")vertex_rules[synthetic_idx].append("\\\"\"");
-                                vertex_rules[synthetic_idx].append(" ");
-                            }
-                            vertex_rules[synthetic_idx].append(")");
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                            visited[w]=true;
-                            visited[v]=true;
-                        }
-                        else if(!additionalProperties.empty() && type==u8"object"){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                                if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                                vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                                is_first_field = false;
-                            }
-                            vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
-                            // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
-                            // vertex_rules[synthetic_idx].append(" ::= ");
-                            vertex_rules[synthetic_idx].append(" \"{\" ws ( string ws \":\" ws ");
-                            vertex_rules[synthetic_idx].append(additionalProperties);
-                            vertex_rules[synthetic_idx].append(" ( ws \",\" ws string ws \":\" ws ");
-                            vertex_rules[synthetic_idx].append(additionalProperties);
-                            vertex_rules[synthetic_idx].append(" )* ws )? \"}\"\n");
-                            if(!entry.is_required)vertex_rules[active_slot].append(" )?");
-                            visited[w]=true;
-                            visited[v]=true;
-                        }
-                        else if(std::get<2>(edges[inner_edge])==EDGE_KIND_ONEOF){
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
-                            }
+        //                     vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
+        //                     // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
+        //                     // vertex_rules[synthetic_idx].append(" ::= ");
+        //                     vertex_rules[synthetic_idx].append(" (");
+        //                     for(size_t eCount=0;eCount<enumerated_array.size();eCount++){
+        //                         if(eCount>0){
+        //                             vertex_rules[synthetic_idx].append(" |");
+        //                         }
+        //                         vertex_rules[synthetic_idx].append(" ");
+        //                         if(type==u8"string")vertex_rules[synthetic_idx].append("\"\\\"");
+        //                         vertex_rules[synthetic_idx].append(enumerated_array[eCount]);
+        //                         if(type==u8"string")vertex_rules[synthetic_idx].append("\\\"\"");
+        //                         vertex_rules[synthetic_idx].append(" ");
+        //                     }
+        //                     vertex_rules[synthetic_idx].append(")");
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                     visited[w]=true;
+        //                     visited[v]=true;
+        //                 }
+        //                 else if(!additionalProperties.empty() && type==u8"object"){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                         if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                         vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                         is_first_field = false;
+        //                     }
+        //                     vertex_rules[active_slot].append_synthetic_slice_ref(synthetic_idx);
+        //                     // vertex_rules[synthetic_idx].append_synthetic_slice_ref(synthetic_idx);
+        //                     // vertex_rules[synthetic_idx].append(" ::= ");
+        //                     vertex_rules[synthetic_idx].append(" \"{\" ws ( string ws \":\" ws ");
+        //                     vertex_rules[synthetic_idx].append(additionalProperties);
+        //                     vertex_rules[synthetic_idx].append(" ( ws \",\" ws string ws \":\" ws ");
+        //                     vertex_rules[synthetic_idx].append(additionalProperties);
+        //                     vertex_rules[synthetic_idx].append(" )* ws )? \"}\"\n");
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" )?");
+        //                     visited[w]=true;
+        //                     visited[v]=true;
+        //                 }
+        //                 else if(std::get<2>(edges[inner_edge])==EDGE_KIND_ONEOF){
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                     if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     is_first_field = false;
+        //                     }
 
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            vertex_rules[active_slot].append("(");
-                            for(size_t v_edge_idx=0;v_edge_idx<child_counts[v];v_edge_idx++){
-                                if(v_edge_idx>0){
-                                    vertex_rules[active_slot].append(" |");
-                                }
-                                vertex_rules[active_slot].append(" ");
-                                size_t inner_v_edge = edge_start_idx[v] + v_edge_idx;
-                                size_t w = std::get<1>(edges[inner_v_edge]);
-                                size_t inner_x_edge = edge_start_idx[w];
-                                size_t x = std::get<1>(edges[inner_x_edge]);
-                                const auto& x_obj = std::get<1>(vertices[x]);
-                                if(size_t* r=nullptr; (r = ref_table.find(x_obj.value)) && std::get<2>(edges[inner_v_edge]) == EDGE_KIND_REF && false){
-                                    vertex_rules[active_slot].append(std::get<1>(vertices[*r]).key);
-                                    rule_symbol_names[*r] = x_obj.value;
-                                }
-                                else
-                                    vertex_rules[active_slot].append(x_obj.value);
-                                vertex_rules[active_slot].append(" ");
-                                visited[x]=true;
-                            }
-                            vertex_rules[active_slot].append(") ");
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                            visited[w]=true;
-                            visited[v]=true;
-                        }
-                        else {
-                            if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
-                            if(!type.empty()){
-                            if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
-                            vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                            is_first_field = false;
-                            }
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     vertex_rules[active_slot].append("(");
+        //                     for(size_t v_edge_idx=0;v_edge_idx<child_counts[v];v_edge_idx++){
+        //                         if(v_edge_idx>0){
+        //                             vertex_rules[active_slot].append(" |");
+        //                         }
+        //                         vertex_rules[active_slot].append(" ");
+        //                         size_t inner_v_edge = edge_start_idx[v] + v_edge_idx;
+        //                         size_t w = std::get<1>(edges[inner_v_edge]);
+        //                         size_t inner_x_edge = edge_start_idx[w];
+        //                         size_t x = std::get<1>(edges[inner_x_edge]);
+        //                         const auto& x_obj = std::get<1>(vertices[x]);
+        //                         if(size_t* r=nullptr; (r = ref_table.find(x_obj.value)) && std::get<2>(edges[inner_v_edge]) == EDGE_KIND_REF && false){
+        //                             vertex_rules[active_slot].append(std::get<1>(vertices[*r]).key);
+        //                             // rule_symbol_names[*r] = x_obj.value;
+        //                         }
+        //                         else
+        //                             vertex_rules[active_slot].append(x_obj.value);
+        //                         vertex_rules[active_slot].append(" ");
+        //                         visited[x]=true;
+        //                     }
+        //                     vertex_rules[active_slot].append(") ");
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                     visited[w]=true;
+        //                     visited[v]=true;
+        //                 }
+        //                 else {
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(" ( ");
+        //                     if(!type.empty()){
+        //                     if (!is_first_field) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                     is_first_field = false;
+        //                     }
 
-                            vertex_rules[active_slot].append(w_obj.value);
-                            if(!entry.is_required)vertex_rules[active_slot].append(")?");
-                        }
-                        if(!type.empty()){
-                            visited[w]=true;
-                            visited[v]=true;
-                        }
-                        current_idx = synthetic_idx;
-                        required_stack.clear();
-                    }
-                }
+        //                     vertex_rules[active_slot].append(w_obj.value);
+        //                     if(!entry.is_required)vertex_rules[active_slot].append(")?");
+        //                 }
+        //                 if(!type.empty()){
+        //                     visited[w]=true;
+        //                     visited[v]=true;
+        //                 }
+        //                 current_idx = synthetic_idx;
+        //                 required_stack.clear();
+        //             }
+        //         }
 
-                // 2. Linear traversal over mapped edges
-                if (state.current_edge_idx < child_counts[u]) {
-                    size_t next_edge = edge_start_idx[u] + state.current_edge_idx;
-                    size_t v = std::get<1>(edges[next_edge]);
-                    const auto& v_obj = std::get<1>(vertices[v]);
-                    if(highest_vertex_id<=v)highest_vertex_id=v+1;
+        //         // 2. Linear traversal over mapped edges
+        //         if (state.current_edge_idx < child_counts[u]) {
+        //             size_t next_edge = edge_start_idx[u] + state.current_edge_idx;
+        //             size_t v = std::get<1>(edges[next_edge]);
+        //             const auto& v_obj = std::get<1>(vertices[v]);
+        //             if(highest_vertex_id<=v)highest_vertex_id=v+1;
 
-                    // if(v_obj.key==u8"$ref"){
-                    //     vertex_rules[active_slot].append("#$ref ");
-                    //     vertex_rules[active_slot].append(std::to_string(child_counts[v]));
-                    //     size_t inner_edge = edge_start_idx[v] + 0;
-                    //     size_t w = std::get<1>(edges[inner_edge]);
-                    //     const auto& w_obj = std::get<1>(vertices[w]);
-                    //     vertex_rules[active_slot].append(" ");
-                    //     vertex_rules[active_slot].append(std::to_string(std::get<2>(edges[inner_edge])));
-                    //     vertex_rules[active_slot].append(" ");
-                    //     vertex_rules[active_slot].append(w_obj.key);
-                    //     vertex_rules[active_slot].append(" ");
-                    //     vertex_rules[active_slot].append(std::to_string(v_obj.resolved_target_idx));
-                    //     vertex_rules[active_slot].append(" ");
-                    //     vertex_rules[active_slot].append(std::to_string(child_counts[w]));
-                    //     vertex_rules[active_slot].append(" ");
-                    //     vertex_rules[active_slot].append(std::to_string(v_obj.parent_id));
-                    //     vertex_rules[active_slot].append(" ");
-                    //     vertex_rules[active_slot].append(std::to_string(v_obj.id));
-                    //     vertex_rules[active_slot].append(" ");
-                    // }
-                    std::u8string_view choiceDelimiter = (std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF) ? u8" | " : u8" \",\" ";
-                    if(visited[v]){
+        //             // if(v_obj.key==u8"$ref"){
+        //             //     vertex_rules[active_slot].append("#$ref ");
+        //             //     vertex_rules[active_slot].append(std::to_string(child_counts[v]));
+        //             //     size_t inner_edge = edge_start_idx[v] + 0;
+        //             //     size_t w = std::get<1>(edges[inner_edge]);
+        //             //     const auto& w_obj = std::get<1>(vertices[w]);
+        //             //     vertex_rules[active_slot].append(" ");
+        //             //     vertex_rules[active_slot].append(std::to_string(std::get<2>(edges[inner_edge])));
+        //             //     vertex_rules[active_slot].append(" ");
+        //             //     vertex_rules[active_slot].append(w_obj.key);
+        //             //     vertex_rules[active_slot].append(" ");
+        //             //     vertex_rules[active_slot].append(std::to_string(v_obj.resolved_target_idx));
+        //             //     vertex_rules[active_slot].append(" ");
+        //             //     vertex_rules[active_slot].append(std::to_string(child_counts[w]));
+        //             //     vertex_rules[active_slot].append(" ");
+        //             //     vertex_rules[active_slot].append(std::to_string(v_obj.parent_id));
+        //             //     vertex_rules[active_slot].append(" ");
+        //             //     vertex_rules[active_slot].append(std::to_string(v_obj.id));
+        //             //     vertex_rules[active_slot].append(" ");
+        //             // }
+        //             std::u8string_view choiceDelimiter = (std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF) ? u8" | " : u8" \",\" ";
+        //             if(visited[v]){
 
-                    }
-                    else if(size_t* r=nullptr; (r= ref_table.find(v_obj.value)) && std::get<2>(edges[next_edge]) == EDGE_KIND_REF && false){
-                        const auto& r_obj=std::get<1>(vertices[*r]);
-                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
-                        vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                        vertex_rules[active_slot].append(r_obj.key);
-                        vertex_rules[active_slot].append(" ws ");
-                        // rule_symbol_names[*r] = v_obj.value;
-                        visited[v]=true;
+        //             }
+        //             // else if(size_t* r=nullptr; (r= ref_table.find(v_obj.value)) && std::get<2>(edges[next_edge]) == EDGE_KIND_REF && false){
+        //             //     const auto& r_obj=std::get<1>(vertices[*r]);
+        //             //     if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
+        //             //     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //             //     vertex_rules[active_slot].append(r_obj.key);
+        //             //     vertex_rules[active_slot].append(" ws ");
+        //             //     // rule_symbol_names[*r] = v_obj.value;
+        //             //     visited[v]=true;
 
-                    }
-                    // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
-                    //     // vertex_rules[active_slot].append("\n# definitions syntax sugar\n");
-                    //     // rule_symbol_names[u] = u_obj.key;
-                    //     rule_symbol_names[std::get<1>(edges[next_edge])] = std::get<1>(vertices[v_obj.resolved_target_idx]).key;
-                    //     visited[v]=true;
-                    // }
-                    // else if(v_obj.resolved_target_idx>0){
-                    //     // vertex_rules[active_slot].append("\n# reference syntax sugar\n");
-                    //     if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
-                    //     vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                    //     vertex_rules[active_slot].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
-                    //     visited[v]=true;
-                    //     rule_symbol_names[v_obj.resolved_target_idx]=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
-                    // }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED || std::get<2>(edges[next_edge]) == EDGE_KIND_REF || std::get<2>(edges[next_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
-                        visited[v]=true;
+        //             // }
+        //             // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_DEFINITIONS){
+        //             //     // vertex_rules[active_slot].append("\n# definitions syntax sugar\n");
+        //             //     // rule_symbol_names[u] = u_obj.key;
+        //             //     rule_symbol_names[std::get<1>(edges[next_edge])] = std::get<1>(vertices[v_obj.resolved_target_idx]).key;
+        //             //     visited[v]=true;
+        //             // }
+        //             // else if(v_obj.resolved_target_idx>0){
+        //             //     // vertex_rules[active_slot].append("\n# reference syntax sugar\n");
+        //             //     if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
+        //             //     vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //             //     vertex_rules[active_slot].append(std::get<1>(vertices[v_obj.resolved_target_idx]).key);
+        //             //     visited[v]=true;
+        //             //     rule_symbol_names[v_obj.resolved_target_idx]=std::get<1>(vertices[v_obj.resolved_target_idx]).key;
+        //             // }
+        //             else if(std::get<2>(edges[next_edge]) == EDGE_KIND_REQUIRED || std::get<2>(edges[next_edge]) == EDGE_KIND_REF || std::get<2>(edges[next_edge]) == EDGE_KIND_ADDITIONAL_PROPERTIES){
+        //                 visited[v]=true;
 
-                    }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_CONST){
-                        vertex_rules[active_slot].append_property_assignment(v_obj.value);
-                        visited[v]=true;
-                    }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_TYPE){
-                        vertex_rules[active_slot].append(v_obj.value);
-                        visited[v]=true;
-                    }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF){
-                        if(state.current_edge_idx > 0) vertex_rules[active_slot].append(" | ");
-                        // vertex_rules[active_slot].append("\n# oneOf impl here\n");
+        //             }
+        //             else if(std::get<2>(edges[next_edge]) == EDGE_KIND_CONST){
+        //                 vertex_rules[active_slot].append_property_assignment(v_obj.value);
+        //                 visited[v]=true;
+        //             }
+        //             else if(std::get<2>(edges[next_edge]) == EDGE_KIND_TYPE){
+        //                 vertex_rules[active_slot].append(v_obj.value);
+        //                 visited[v]=true;
+        //             }
+        //             else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ONEOF){
+        //                 if(state.current_edge_idx > 0) vertex_rules[active_slot].append(" | ");
+        //                 // vertex_rules[active_slot].append("\n# oneOf impl here\n");
                         
-                        vertex_rules[active_slot].append(v_obj.key);
-                        // vertex_rules[v].append(v_obj.key);
-                        if(v_obj.key.empty()){
-                            vertex_rules[active_slot].append("branch-");
-                            vertex_rules[active_slot].append_int(v);
-                            // vertex_rules[active_slot].append("-rule ");
-                            // vertex_rules[v].append("-branch-");
-                            // emit_size_t_as_string(vertex_rules[v], v);
-                            // vertex_rules[v].append("-rule ::= ");
-                        }
+        //                 vertex_rules[active_slot].append(v_obj.key);
+        //                 // vertex_rules[v].append(v_obj.key);
+        //                 if(v_obj.key.empty()){
+        //                     vertex_rules[active_slot].append("branch-");
+        //                     vertex_rules[active_slot].append_int(v);
+        //                     // vertex_rules[active_slot].append("-rule ");
+        //                     // vertex_rules[v].append("-branch-");
+        //                     // emit_size_t_as_string(vertex_rules[v], v);
+        //                     // vertex_rules[v].append("-rule ::= ");
+        //                 }
                         
-                        //visited[v]=true;
+        //                 //visited[v]=true;
 
-                    }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ANYOF){
-                        if(state.current_edge_idx > 0) vertex_rules[active_slot].append(" | ");
-                        // vertex_rules[active_slot].append("\n# oneOf impl here\n");
+        //             }
+        //             else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ANYOF){
+        //                 if(state.current_edge_idx > 0) vertex_rules[active_slot].append(" | ");
+        //                 // vertex_rules[active_slot].append("\n# oneOf impl here\n");
                         
-                        vertex_rules[active_slot].append(v_obj.key);
-                        // vertex_rules[v].append(v_obj.key);
-                        if(v_obj.key.empty()){
-                            vertex_rules[active_slot].append("branch-");
-                            vertex_rules[active_slot].append_int(v);
-                            // vertex_rules[active_slot].append("-rule ");
-                            // vertex_rules[v].append("-branch-");
-                            // emit_size_t_as_string(vertex_rules[v], v);
-                            // vertex_rules[v].append("-rule ::= ");
-                        }
+        //                 vertex_rules[active_slot].append(v_obj.key);
+        //                 // vertex_rules[v].append(v_obj.key);
+        //                 if(v_obj.key.empty()){
+        //                     vertex_rules[active_slot].append("branch-");
+        //                     vertex_rules[active_slot].append_int(v);
+        //                     // vertex_rules[active_slot].append("-rule ");
+        //                     // vertex_rules[v].append("-branch-");
+        //                     // emit_size_t_as_string(vertex_rules[v], v);
+        //                     // vertex_rules[v].append("-rule ::= ");
+        //                 }
                         
-                        //visited[v]=true;
+        //                 //visited[v]=true;
 
-                    }
-                    // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS){
-                    //     // std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
-                    //     // if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
-                    //     // if(type==u8"object")vertex_rules[active_slot].append("{ ");
-                    //     // else if(type==u8"array")vertex_rules[active_slot].append("[ ");
+        //             }
+        //             // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_ITEMS){
+        //             //     // std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
+        //             //     // if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(choiceDelimiter);
+        //             //     // if(type==u8"object")vertex_rules[active_slot].append("{ ");
+        //             //     // else if(type==u8"array")vertex_rules[active_slot].append("[ ");
 
-                    //     // if(type==u8"object")vertex_rules[active_slot].append("} ");
-                    //     // else if(type==u8"array")vertex_rules[active_slot].append("] ");
-                    //     current_idx = MaxNodes * 2 + next_edge;
-                    //     visited[v]=true;
-                    // }
-                    // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
-                    // }
-                    else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PATTERN_PROPERTIES && !ref_table.find(v_obj.key)){
-                        size_t inner_edge = edge_start_idx[v] + 0;
-                        size_t w = std::get<1>(edges[inner_edge]);
-                        const auto& w_obj = std::get<1>(vertices[w]);
-                        if(highest_vertex_id<=w)highest_vertex_id=w+1;
-                        std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
-                        size_t pattern_key_idx = MaxNodes + next_edge;
-                        if(size_t* r=nullptr; (r = ref_table.find(w_obj.value)) && std::get<2>(edges[inner_edge]) == EDGE_KIND_REF && false){
-                            const auto& r_obj=std::get<1>(vertices[*r]);
-                            vertex_rules[active_slot].append(" ( ");
-                            vertex_rules[active_slot].append(r_obj.key);
-                            vertex_rules[active_slot].append("-");
-                            vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
-                            vertex_rules[active_slot].append(" ws \":\" ws ");
-                            vertex_rules[active_slot].append(r_obj.key);
-                            vertex_rules[active_slot].append(" ( ws \",\" ws -");
-                            vertex_rules[active_slot].append(r_obj.key);
-                            vertex_rules[active_slot].append("-");
-                            vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
-                            vertex_rules[active_slot].append(" ws \":\" ws ");
-                            vertex_rules[active_slot].append(r_obj.key);
-                            vertex_rules[active_slot].append(" )* )? ");
-                            // vertex_rules[pattern_key_idx].append(r_obj.key);
-                            // vertex_rules[pattern_key_idx].append("-");
-                            // vertex_rules[pattern_key_idx].append_pattern_key_ref(pattern_key_idx);
-                            // vertex_rules[pattern_key_idx].append(" ::= ");
-                            vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
-                            // vertex_rules[pattern_key_idx].append("\n");
-                            // rule_symbol_names[*r]=w_obj.value;
-                        }
-                        else{
-                            vertex_rules[active_slot].append(" ( ");
-                            vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
-                            vertex_rules[active_slot].append(" ws \":\" ws ");
-                            vertex_rules[active_slot].append(type);
-                            vertex_rules[active_slot].append(" ( ws \",\" ws ");
-                            vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
-                            vertex_rules[active_slot].append(" ws \":\" ws ");
-                            vertex_rules[active_slot].append(type);
-                            vertex_rules[active_slot].append(" )* )? ");
-                            // vertex_rules[pattern_key_idx].append_pattern_key_ref(pattern_key_idx);
-                            // vertex_rules[pattern_key_idx].append(" ::= ");
-                            vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
-                            // vertex_rules[pattern_key_idx].append("\n");
-                        }
+        //             //     // if(type==u8"object")vertex_rules[active_slot].append("} ");
+        //             //     // else if(type==u8"array")vertex_rules[active_slot].append("] ");
+        //             //     current_idx = MaxNodes * 2 + next_edge;
+        //             //     visited[v]=true;
+        //             // }
+        //             // else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PROPERTIES && v_obj.resolved_target_idx==0){
+        //             // }
+        //             else if(std::get<2>(edges[next_edge]) == EDGE_KIND_PATTERN_PROPERTIES){
+        //                 size_t inner_edge = edge_start_idx[v] + 0;
+        //                 size_t w = std::get<1>(edges[inner_edge]);
+        //                 const auto& w_obj = std::get<1>(vertices[w]);
+        //                 if(highest_vertex_id<=w)highest_vertex_id=w+1;
+        //                 std::u8string_view type = findType(v, child_counts, vertices, edges, edge_start_idx);
+        //                 size_t pattern_key_idx = MaxNodes + next_edge;
+        //                 /*if(size_t* r=nullptr; (r = ref_table.find(w_obj.value)) && std::get<2>(edges[inner_edge]) == EDGE_KIND_REF && false){
+        //                     const auto& r_obj=std::get<1>(vertices[*r]);
+        //                     vertex_rules[active_slot].append(" ( ");
+        //                     vertex_rules[active_slot].append(r_obj.key);
+        //                     vertex_rules[active_slot].append("-");
+        //                     vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
+        //                     vertex_rules[active_slot].append(" ws \":\" ws ");
+        //                     vertex_rules[active_slot].append(r_obj.key);
+        //                     vertex_rules[active_slot].append(" ( ws \",\" ws -");
+        //                     vertex_rules[active_slot].append(r_obj.key);
+        //                     vertex_rules[active_slot].append("-");
+        //                     vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
+        //                     vertex_rules[active_slot].append(" ws \":\" ws ");
+        //                     vertex_rules[active_slot].append(r_obj.key);
+        //                     vertex_rules[active_slot].append(" )* )? ");
+        //                     // vertex_rules[pattern_key_idx].append(r_obj.key);
+        //                     // vertex_rules[pattern_key_idx].append("-");
+        //                     // vertex_rules[pattern_key_idx].append_pattern_key_ref(pattern_key_idx);
+        //                     // vertex_rules[pattern_key_idx].append(" ::= ");
+        //                     vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
+        //                     // vertex_rules[pattern_key_idx].append("\n");
+        //                     // rule_symbol_names[*r]=w_obj.value;
+        //                 }
+        //                 else*/{
+        //                     vertex_rules[active_slot].append(" ( ");
+        //                     vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
+        //                     vertex_rules[active_slot].append(" ws \":\" ws ");
+        //                     vertex_rules[active_slot].append(type);
+        //                     vertex_rules[active_slot].append(" ( ws \",\" ws ");
+        //                     vertex_rules[active_slot].append_pattern_key_ref(pattern_key_idx);
+        //                     vertex_rules[active_slot].append(" ws \":\" ws ");
+        //                     vertex_rules[active_slot].append(type);
+        //                     vertex_rules[active_slot].append(" )* )? ");
+        //                     // vertex_rules[pattern_key_idx].append_pattern_key_ref(pattern_key_idx);
+        //                     // vertex_rules[pattern_key_idx].append(" ::= ");
+        //                     vertex_rules[pattern_key_idx].append_regex_as_quoted_gbnf(v_obj.key);
+        //                     // vertex_rules[pattern_key_idx].append("\n");
+        //                 }
                         
-                        visited[v]=true;
-                    }
-                    else if(u_obj.obj_type==JSON_OBJECT && v_obj.key==u8"type"){
-                        offset_edge_idx++;
-                        // visited[v]=true;
-                    }
-                    else if(u_obj.obj_type==JSON_OBJECT && (v_obj.obj_type==JSON_STRING || v_obj.obj_type==JSON_NUMBER || v_obj.obj_type==JSON_BOOLEAN || v_obj.obj_type==JSON_NULL)){
-                        // vertex_rules[active_slot].append(" \"");
-                        vertex_rules[active_slot].append_quoted_escaped(getPrimitiveName(v_obj.obj_type));
-                        // vertex_rules[active_slot].append("\"");
-                        visited[v]=true;
-                    } else if(child_counts[u]>0){
-                        if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(" ws \",\" ws ");
-                        // Emit normal sequential keys and reference links...
-                        vertex_rules[active_slot].append(" ws ");
-                        vertex_rules[active_slot].append(v_obj.key);
-                        if(v_obj.key.empty()){
-                            if(rootType==u8"array"){
-                                size_t items_idx = (MaxNodes * 2) + next_edge;
-                                vertex_rules[active_slot].append("item-block-");
-                                vertex_rules[active_slot].append_int(items_idx);
-                                // vertex_rules[active_slot].append("-rule");
-                            }
-                            else{
-                                vertex_rules[active_slot].append("branch-");
-                                vertex_rules[active_slot].append_int(v);
-                            }
-                        }
-                        else{
-                        //   vertex_rules[active_slot].append_property_assignment(v_obj.key);
-                           //vertex_rules[active_slot].append(v_obj.value);
-                        }
-                        if(!rootItems.empty()){
-                            vertex_rules[active_slot].append("# last else");
-                            vertex_rules[active_slot].append(v_obj.key);
-                            vertex_rules[active_slot].append(" = ");
-                            vertex_rules[active_slot].append(v_obj.value);
-                            vertex_rules[active_slot].append("\n");
-                        }
-                    }
-                    // if(!rootItems.empty()){
-                    //     vertex_rules[active_slot].append("# visited? ");
-                    //     vertex_rules[active_slot].append(v_obj.key);
-                    //     vertex_rules[active_slot].append(" visited[v] ");
-                    //     vertex_rules[active_slot].append_int(visited[v]);
-                    //     vertex_rules[active_slot].append("\n");
-                    // }
-                    if (!visited[v]) {
-                        visited[v] = true;
-                        if(v_obj.obj_type!=JSON_STRING && v_obj.obj_type!=JSON_NUMBER && v_obj.obj_type!=JSON_BOOLEAN && v_obj.obj_type!=JSON_NULL){
-                            traversal_stack.push(DFSState{v, 0, current_idx});
-                            offset_edge_idx=0;
-                        }
-                    }
-                    state.current_edge_idx++;
-                } else {
-                    // 3. Close rule on exit
-                    if(child_counts[u]>0){
-                        if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"object")
-                            vertex_rules[active_slot].append(" ws \"}\" ws ");
-                        else if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"array"){
-                            vertex_rules[active_slot].append(" ws \"]\" ws ");
-                            if(!rootItems.empty()){
-                                current_idx = u;
-                            }
-                        }
-                    }
-                    visited[u] = true;
-                    if(highest_vertex_id<=u)highest_vertex_id=u+1;
-                    traversal_stack.pop();
-                    offset_edge_idx=0;
-                }
-                }
-                if(traversal_stack.empty() && highest_vertex_id<vertices.size()-1){
-                    while(highest_vertex_id<vertices.size()-1 &&  visited[highest_vertex_id]){
-                        highest_vertex_id++;
-                    }
-                    if(highest_vertex_id<vertices.size()-1){
-                        traversal_stack.push(DFSState{highest_vertex_id, 0, u+1});
-                        offset_edge_idx=0;
-                    }
-                }
-            }
+        //                 visited[v]=true;
+        //             }
+        //             else if(u_obj.obj_type==JSON_OBJECT && v_obj.key==u8"type"){
+        //                 offset_edge_idx++;
+        //                 // visited[v]=true;
+        //             }
+        //             else if(u_obj.obj_type==JSON_OBJECT && (v_obj.obj_type==JSON_STRING || v_obj.obj_type==JSON_NUMBER || v_obj.obj_type==JSON_BOOLEAN || v_obj.obj_type==JSON_NULL)){
+        //                 // vertex_rules[active_slot].append(" \"");
+        //                 vertex_rules[active_slot].append_quoted_escaped(getPrimitiveName(v_obj.obj_type));
+        //                 // vertex_rules[active_slot].append("\"");
+        //                 visited[v]=true;
+        //             } else if(child_counts[u]>0){
+        //                 if (state.current_edge_idx > offset_edge_idx) vertex_rules[active_slot].append(" ws \",\" ws ");
+        //                 // Emit normal sequential keys and reference links...
+        //                 vertex_rules[active_slot].append(" ws ");
+        //                 vertex_rules[active_slot].append(v_obj.key);
+        //                 if(v_obj.key.empty()){
+        //                     if(rootType==u8"array"){
+        //                         size_t items_idx = (MaxNodes * 2) + next_edge;
+        //                         vertex_rules[active_slot].append("item-block-");
+        //                         vertex_rules[active_slot].append_int(items_idx);
+        //                         // vertex_rules[active_slot].append("-rule");
+        //                     }
+        //                     else{
+        //                         vertex_rules[active_slot].append("branch-");
+        //                         vertex_rules[active_slot].append_int(v);
+        //                     }
+        //                 }
+        //                 else{
+        //                 //   vertex_rules[active_slot].append_property_assignment(v_obj.key);
+        //                    //vertex_rules[active_slot].append(v_obj.value);
+        //                 }
+        //                 if(!rootItems.empty()){
+        //                     vertex_rules[active_slot].append("# last else");
+        //                     vertex_rules[active_slot].append(v_obj.key);
+        //                     vertex_rules[active_slot].append(" = ");
+        //                     vertex_rules[active_slot].append(v_obj.value);
+        //                     vertex_rules[active_slot].append("\n");
+        //                 }
+        //             }
+        //             // if(!rootItems.empty()){
+        //             //     vertex_rules[active_slot].append("# visited? ");
+        //             //     vertex_rules[active_slot].append(v_obj.key);
+        //             //     vertex_rules[active_slot].append(" visited[v] ");
+        //             //     vertex_rules[active_slot].append_int(visited[v]);
+        //             //     vertex_rules[active_slot].append("\n");
+        //             // }
+        //             if (!visited[v]) {
+        //                 visited[v] = true;
+        //                 if(v_obj.obj_type!=JSON_STRING && v_obj.obj_type!=JSON_NUMBER && v_obj.obj_type!=JSON_BOOLEAN && v_obj.obj_type!=JSON_NULL){
+        //                     traversal_stack.push(DFSState{v, 0, current_idx});
+        //                     offset_edge_idx=0;
+        //                 }
+        //             }
+        //             state.current_edge_idx++;
+        //         } else {
+        //             // 3. Close rule on exit
+        //             if(child_counts[u]>0){
+        //                 if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"object")
+        //                     vertex_rules[active_slot].append(" ws \"}\" ws ");
+        //                 else if (u_obj.obj_type == JSON_OBJECT &&  rootType==u8"array"){
+        //                     vertex_rules[active_slot].append(" ws \"]\" ws ");
+        //                     if(!rootItems.empty()){
+        //                         current_idx = u;
+        //                     }
+        //                 }
+        //             }
+        //             visited[u] = true;
+        //             if(highest_vertex_id<=u)highest_vertex_id=u+1;
+        //             traversal_stack.pop();
+        //             offset_edge_idx=0;
+        //         }
+        //         }
+        //         // if(traversal_stack.empty() && highest_vertex_id<vertices.size()-1){
+        //         //     while(highest_vertex_id<vertices.size()-1 &&  visited[highest_vertex_id]){
+        //         //         highest_vertex_id++;
+        //         //     }
+        //         //     if(highest_vertex_id<vertices.size()-1){
+        //         //         traversal_stack.push(DFSState{highest_vertex_id, 0, u+1});
+        //         //         offset_edge_idx=0;
+        //         //     }
+        //         // }
+        //     }
+        // };
+
+        constexpr SCHEMA_TYPE parse_schema_type_token(std::u8string_view tok) noexcept {
+            if (tok == u8"null")    return SCHEMA_TYPE_NULL;
+            if (tok == u8"boolean") return SCHEMA_TYPE_BOOLEAN;
+            if (tok == u8"object")  return SCHEMA_TYPE_OBJECT;
+            if (tok == u8"array")   return SCHEMA_TYPE_ARRAY;
+            if (tok == u8"number")  return SCHEMA_TYPE_NUMBER;
+            if (tok == u8"string")  return SCHEMA_TYPE_STRING;
+            if (tok == u8"integer") return SCHEMA_TYPE_INTEGER;
+            return SCHEMA_TYPE_ANY;
         };
 
         // A simple constexpr flag helper to identify JSON Schema keywords
@@ -1361,7 +1661,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
                    key == u8"dependentSchemas" || key == u8"dependencies" ||
                    key == u8"allOf" || key == u8"anyOf" || key == u8"oneOf" || key == u8"not" ||
                    key == u8"if" || key == u8"then" || key == u8"else";
-        }    
+        };
 
         constexpr bool is_keyword_implemented(std::u8string_view key) {
             if(key == u8"$schema") return true;
@@ -1425,15 +1725,9 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             if(key == u8"then") throw "JSON Schema keyword not implemented: then";
             if(key == u8"else") throw "JSON Schema keyword not implemented: else";
             return false;
-        }    
+        };
 
-        template<size_t VCapacity>
-        constexpr bool hasParentalSyntax(const cairns::fixed_stack<std::tuple<size_t, jobject>, VCapacity>& vertices, cairns::fixed_stack<size_t, 64>& parentStack){
-            if(parentStack.size()>=1 && std::get<1>(vertices[parentStack.back()]).context==SCHEMA_CONTEXT::SCHEMA_MODE && getEdgeKind(std::get<1>(vertices[parentStack.back()]).key)>EDGE_KIND_AST){
-                return true;
-            }
-            else return false;
-        }
+        constexpr bool is_schema_object(std::u8string_view key){ return key!=u8"properties" && key!=u8"patternProperties" && key!=u8"$defs" && key!=u8"definitions" &&  key!=u8"dependentSchemas";};
 
         constexpr EDGE_KIND getEdgeKind(std::u8string_view key) {
             if (key == u8"properties") return EDGE_KIND_PROPERTIES;

@@ -4,7 +4,7 @@ MODULE_DIRECTORY ?= ../cpp_modules
 
 OPT_FLAGS ?= -O3
 
-#-include ../build/src/io/json/Binder.d
+-include ../build/src/compile-time-test.d
 #-include ../build/src/io/json/Path.d
 
 all: LDFLAGS= -Wl,-rpath,'$$ORIGIN/$(MODULE_DIRECTORY)/llama/dist/lib' -fuse-ld=gold -fcontracts -L../ -ljsonthresher -pthread
