@@ -177,6 +177,7 @@ namespace sylvanmats::metaphrase{
         [[=cairns::skip_print{}]] EDGE_KIND edge_kind=EDGE_KIND_AST;
         
         // --- Direct GBNF Grammar Properties ---
+        bool is_ref=false;
         [[=cairns::print_label{"req"}]] bool is_required = false;               // Marked true when named in parent's "required" array
         [[=cairns::print_bool_when{false}, =cairns::print_label{"closed"}]] bool additional_properties = true;      // Set false by "additionalProperties": false
         [[=cairns::print_label{"type"}, =cairns::bitmask_enum{}]] SCHEMA_TYPE type_mask = SCHEMA_TYPE::SCHEMA_TYPE_ANY;
@@ -313,7 +314,7 @@ struct gbnf_emitter {
         }
 
         // 3. $ref edge emits target rule name directly
-        if (incoming_edge == EDGE_KIND::EDGE_KIND_REF) {
+        if (incoming_edge == EDGE_KIND::EDGE_KIND_REF|| obj.is_ref) {
             out += obj.value.empty() ? obj.key : obj.value;
             return;
         }
@@ -500,8 +501,9 @@ struct gbnf_emitter {
                         current_key=u8"root";
                     }
                     EDGE_KIND edge_kind=getEdgeKind(std::get<1>(vertices[parentStack.back().vertex_id]).key);
-                    if(std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_PROPERTIES)edge_kind=EDGE_KIND_PROPERTIES;
-                    while(edge_kind==EDGE_KIND_DEFINITIONS && parentStack.size()>1)parentStack.pop();
+                    if(std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_PROPERTIES || std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_REF)
+                        edge_kind=std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind;
+                    while(std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_DEFINITIONS && parentStack.size()>1)parentStack.pop();
                     size_t parent_id=parentStack.back().vertex_id;
                     SCHEMA_CONTEXT schemaContext=(edge_kind==EDGE_KIND_PROPERTIES) ? MODE_DATAKEY : MODE_SCHEMA;
                     // if(schemaContext==MODE_DATAKEY)edge_kind=EDGE_KIND_PROPERTIES;
@@ -590,10 +592,10 @@ struct gbnf_emitter {
                         //     pendingRequired.emplace(owner_id, jsonBuffer.substr(startOffset, cursor - startOffset));
                         // }
                         else if(edge_kind==EDGE_KIND_TYPE){
-                            std::get<1>(vertices[parentStack[parentStack.size()-2].vertex_id]).type_mask|=parse_schema_type_token(jsonBuffer.substr(startOffset, cursor - startOffset));
+                            std::get<1>(vertices[parentStack.back().vertex_id]).type_mask|=parse_schema_type_token(jsonBuffer.substr(startOffset, cursor - startOffset));
                         }
                         // else if(edge_kind==EDGE_KIND_ITEMS){
-                        //     std::get<1>(vertices[parentStack[parentStack.size()-2].vertex_id]).type_mask|=parse_schema_type_token(jsonBuffer.substr(startOffset, cursor - startOffset));
+                        //     std::get<1>(vertices[parentStack.back().vertex_id]).type_mask|=parse_schema_type_token(jsonBuffer.substr(startOffset, cursor - startOffset));
                         // }
                         else if(schemaContext==MODE_DATAKEY || edge_kind==EDGE_KIND_TYPE || edge_kind==EDGE_KIND_ITEMS || std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_PROPERTIES || std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_REF || !is_schema_keyword(current_key)){
                             vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(keyStart, keyEnd - keyStart), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
@@ -611,22 +613,19 @@ struct gbnf_emitter {
                         size_t parent_id=parentStack.empty() ? 0 : parentStack.back().vertex_id;
                         SCHEMA_CONTEXT schemaContext=(!parentStack.empty() && current_key==u8"properties") ? MODE_DATAKEY : MODE_SCHEMA;
                         EDGE_KIND edge_kind=getEdgeKind(current_key);
-                        if(schemaContext!=MODE_DATAKEY && std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind==EDGE_KIND_REQUIRED){
-                            size_t owner_id = parentStack.back().vertex_id;
-                            pendingRequired.emplace(owner_id, current_key);
+                        if(schemaContext!=MODE_DATAKEY && edge_kind==EDGE_KIND_REQUIRED){
+                            // size_t owner_id = parentStack.back().vertex_id;
+                            // pendingRequired.emplace(owner_id, current_key);
+                            std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
                         }
                         else if(schemaContext!=MODE_DATAKEY && edge_kind==EDGE_KIND_ITEMS){
-                            //std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
+                            std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
                         }
                         else if(schemaContext==MODE_DATAKEY && edge_kind==EDGE_KIND_PROPERTIES){
                             std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
                         }
-                        // if(schemaContext!=MODE_DATAKEY && is_schema_keyword(current_key))
-                        //     std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
-                        // else if(current_key==u8"properties")
-                        //     std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=EDGE_KIND_PROPERTIES;
-                        // else
-                        //     std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=EDGE_KIND_AST;
+                        else if(schemaContext!=MODE_DATAKEY && is_schema_keyword(current_key))
+                            std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
                     }
                     else{
                         size_t idx1 = vertices.size();
@@ -718,9 +717,12 @@ struct gbnf_emitter {
                             //schemaContext=MODE_SCHEMA;
                             if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/definitions/"))startOffset+=14;
                             else if(jsonBuffer.substr(startOffset, cursor - startOffset).starts_with(u8"#/$defs/"))startOffset+=8;
-                            vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(startOffset, cursor - startOffset), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
-                            raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
-                            child_counts[parent_id]++;
+                            std::get<1>(vertices[parentStack.back().vertex_id]).value=jsonBuffer.substr(startOffset, cursor - startOffset);
+                            std::get<1>(vertices[parentStack.back().vertex_id]).is_ref=true;
+                            std::get<1>(vertices[parentStack.back().vertex_id]).edge_kind=edge_kind;
+                            // vertices.emplace(idx1, jobject{.obj_type=JSON_STRING, .context=schemaContext, .id=idx1, .parent_id=parent_id, .key=jsonBuffer.substr(startOffset, cursor - startOffset), .value=jsonBuffer.substr(startOffset, cursor - startOffset), .depth=parentStack.size()});
+                            // raw_edges.push(RawEdge{parent_id, idx1, edge_kind, schemaContext});
+                            // child_counts[parent_id]++;
                         }
                         else if(edge_kind==EDGE_KIND_REQUIRED){
                             size_t owner_id = parentStack.back().vertex_id;
@@ -1727,7 +1729,7 @@ array  ::= "[" ws ( value ( ws "," ws value )* ws )? "]"
             return false;
         };
 
-        constexpr bool is_schema_object(std::u8string_view key){ return key!=u8"properties" && key!=u8"patternProperties" && key!=u8"$defs" && key!=u8"definitions" &&  key!=u8"dependentSchemas";};
+        constexpr bool is_schema_object(std::u8string_view key){ return key!=u8"properties" && key!=u8"patternProperties" && key!=u8"$defs" && key!=u8"definitions" && key!=u8"dependentSchemas" && key!=u8"$ref" && key!=u8"items";};
 
         constexpr EDGE_KIND getEdgeKind(std::u8string_view key) {
             if (key == u8"properties") return EDGE_KIND_PROPERTIES;
